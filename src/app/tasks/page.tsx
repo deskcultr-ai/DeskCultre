@@ -243,9 +243,10 @@ export default function TasksPage() {
                 : null;
 
               return (
-                <article
+                <Link
                   key={task.id}
-                  className="rounded-2xl border border-white/10 bg-slate-900 p-6"
+                  href={`/tasks/${task.id}`}
+                  className="block rounded-2xl border border-white/10 bg-slate-900 p-6 transition hover:border-cyan-400/40 hover:bg-slate-800"
                 >
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                     <div className="flex-1">
@@ -307,7 +308,7 @@ export default function TasksPage() {
                       </p>
                     </div>
                   </div>
-                </article>
+                </Link>
               );
             })}
           </div>

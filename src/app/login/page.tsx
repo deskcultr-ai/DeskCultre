@@ -11,12 +11,17 @@ export default function LoginPage() {
     event.preventDefault();
     setMessage("Sending login link...");
 
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo: "http://localhost:3000",
-      },
-    });
+    const redirectTo =
+  typeof window !== "undefined"
+    ? `${window.location.origin}/dashboard`
+    : "http://localhost:3000/dashboard";
+
+const { error } = await supabase.auth.signInWithOtp({
+  email,
+  options: {
+    emailRedirectTo: redirectTo,
+  },
+});
 
     if (error) {
       setMessage(error.message);

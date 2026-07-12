@@ -1,34 +1,40 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
+  const [sending, setSending] = useState(false);
   const [message, setMessage] = useState("");
+  const [messageType, setMessageType] = useState<"success" | "error" | "">("");
 
   async function handleLogin(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setMessage("Sending login link...");
+    setSending(true);
+    setMessage("Sending secure login link...");
+    setMessageType("");
 
-    const redirectTo =
-  typeof window !== "undefined"
-    ? `${window.location.origin}/dashboard`
-    : "http://localhost:3000/dashboard";
+    const redirectTo = `${window.location.origin}/dashboard`;
 
-const { error } = await supabase.auth.signInWithOtp({
-  email,
-  options: {
-    emailRedirectTo: redirectTo,
-  },
-});
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: redirectTo,
+      },
+    });
+
+    setSending(false);
 
     if (error) {
+      setMessageType("error");
       setMessage(error.message);
       return;
     }
 
-    setMessage("Check your email for the login link.");
+    setMessageType("success");
+    setMessage("Login link sent. Please check your email.");
   }
 
   return (
@@ -51,16 +57,40 @@ const { error } = await supabase.auth.signInWithOtp({
               placeholder="you@company.com"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              className="mt-2 w-full rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none focus:border-cyan-400"
+              disabled={sending}
+              className="mt-2 w-full rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none focus:border-cyan-400 disabled:opacity-60"
             />
           </div>
 
-          <button className="w-full rounded-xl bg-cyan-400 px-5 py-3 font-semibold text-slate-950">
-            Send login link
+          <button
+            type="submit"
+            disabled={sending}
+            className="w-full rounded-xl bg-cyan-400 px-5 py-3 font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {sending ? "Sending..." : "Send login link"}
           </button>
         </form>
 
-        {message && <p className="mt-5 text-sm text-cyan-200">{message}</p>}
+        {message && (
+          <p
+            className={`mt-5 text-sm ${
+              messageType === "error"
+                ? "text-red-300"
+                : messageType === "success"
+                  ? "text-green-300"
+                  : "text-cyan-200"
+            }`}
+          >
+            {message}
+          </p>
+        )}
+
+        <Link
+          href="/"
+          className="mt-6 inline-block text-sm text-slate-400 hover:text-cyan-300"
+        >
+          ← Back to home
+        </Link>
       </section>
     </main>
   );

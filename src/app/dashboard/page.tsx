@@ -83,6 +83,27 @@ const statCards = [
   { key: "overdue", label: "Overdue", color: "text-red-400" },
 ] as const;
 
+function StatusCard({
+  title,
+  children,
+  action,
+}: {
+  title: string;
+  children: React.ReactNode;
+  action?: React.ReactNode;
+}) {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-white">
+      <section className="w-full max-w-md rounded-3xl border border-white/10 bg-white/10 p-8 text-center shadow-2xl">
+        <p className="text-sm font-semibold text-cyan-300">FlowDesk</p>
+        <h1 className="mt-3 text-2xl font-bold">{title}</h1>
+        <div className="mt-4 text-slate-300">{children}</div>
+        {action && <div className="mt-6">{action}</div>}
+      </section>
+    </main>
+  );
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -125,9 +146,12 @@ export default function DashboardPage() {
         .eq("id", profileData.company_id)
         .single();
 
-      if (companyData) {
-        setCompany(companyData);
+      if (!companyData) {
+        setLoading(false);
+        return;
       }
+
+      setCompany(companyData);
 
       const { data: departmentData } = await supabase
         .from("departments")
@@ -164,28 +188,70 @@ export default function DashboardPage() {
 
   if (!user) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-white">
-        <section className="w-full max-w-md rounded-3xl border border-white/10 bg-white/10 p-8 text-center shadow-2xl">
-          <p className="text-sm font-semibold text-cyan-300">FlowDesk</p>
-          <h1 className="mt-3 text-2xl font-bold">You are not logged in</h1>
-          <p className="mt-3 text-slate-300">
-            Please sign in to access your workspace dashboard.
-          </p>
+      <StatusCard
+        title="Please login to continue"
+        action={
           <Link
             href="/login"
-            className="mt-6 inline-block rounded-xl bg-cyan-400 px-6 py-3 font-semibold text-slate-950"
+            className="inline-block rounded-xl bg-cyan-400 px-6 py-3 font-semibold text-slate-950"
           >
             Go to Login
           </Link>
-        </section>
-      </main>
+        }
+      >
+        <p>Sign in to access your FlowDesk workspace dashboard.</p>
+      </StatusCard>
+    );
+  }
+
+  if (!profile) {
+    return (
+      <StatusCard
+        title="Profile setup pending"
+        action={
+          <button
+            onClick={handleSignOut}
+            className="rounded-xl border border-white/20 px-6 py-3 text-sm font-semibold text-white"
+          >
+            Sign Out
+          </button>
+        }
+      >
+        <p>Signed in as:</p>
+        <p className="mt-2 font-semibold text-white">{user.email}</p>
+        <p className="mt-4 text-sm text-slate-400">
+          Your admin needs to create your profile before you can use the
+          dashboard.
+        </p>
+      </StatusCard>
+    );
+  }
+
+  if (!company) {
+    return (
+      <StatusCard
+        title="Company setup pending"
+        action={
+          <button
+            onClick={handleSignOut}
+            className="rounded-xl border border-white/20 px-6 py-3 text-sm font-semibold text-white"
+          >
+            Sign Out
+          </button>
+        }
+      >
+        <p>Your profile exists, but your company is not set up yet.</p>
+        <p className="mt-4 text-sm text-slate-400">
+          Please contact your admin to finish company setup.
+        </p>
+      </StatusCard>
     );
   }
 
   const displayName =
-    profile?.full_name || profile?.email || user.email || "User";
-  const displayEmail = profile?.email || user.email || "";
-  const displayRole = profile?.role || "Member";
+    profile.full_name || profile.email || user.email || "User";
+  const displayEmail = profile.email || user.email || "";
+  const displayRole = profile.role || "Member";
 
   return (
     <main className="min-h-screen bg-slate-950 px-6 py-8 text-white">
@@ -194,9 +260,7 @@ export default function DashboardPage() {
           <div>
             <p className="text-sm font-semibold text-cyan-300">FlowDesk</p>
             <h1 className="mt-1 text-3xl font-bold">Dashboard</h1>
-            {company && (
-              <p className="mt-2 text-slate-300">{company.name}</p>
-            )}
+            <p className="mt-2 text-slate-300">{company.name}</p>
           </div>
 
           <div className="flex flex-col gap-4 sm:items-end">

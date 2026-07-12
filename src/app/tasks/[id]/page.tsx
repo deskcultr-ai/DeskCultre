@@ -41,21 +41,21 @@ type Task = {
 
 type TaskComment = {
   id: string;
-  user_id: string;
+  user_id: string | null;
   comment: string;
   created_at: string;
 };
 
 type TaskApproval = {
   id: string;
-  user_id: string;
+  user_id: string | null;
   decision: string;
   created_at: string;
 };
 
 type TaskActivity = {
   id: string;
-  user_id: string;
+  user_id: string | null;
   action: string;
   details: Record<string, unknown> | null;
   created_at: string;
@@ -97,9 +97,7 @@ function formatStatus(status: string) {
 }
 
 function formatDateTime(value: string | null) {
-  if (!value) {
-    return "—";
-  }
+  if (!value) return "—";
 
   return new Date(value).toLocaleString("en-IN", {
     day: "numeric",
@@ -111,9 +109,7 @@ function formatDateTime(value: string | null) {
 }
 
 function formatDate(date: string | null) {
-  if (!date) {
-    return "No due date";
-  }
+  if (!date) return "No due date";
 
   return new Date(date + "T00:00:00").toLocaleDateString("en-IN", {
     day: "numeric",
@@ -123,10 +119,7 @@ function formatDate(date: string | null) {
 }
 
 function personName(person: Person | null) {
-  if (!person) {
-    return "Unknown";
-  }
-
+  if (!person) return "Unknown";
   return person.full_name || person.email;
 }
 
@@ -141,13 +134,16 @@ export default function TaskDetailPage() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [commentLoading, setCommentLoading] = useState(false);
+
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [task, setTask] = useState<Task | null>(null);
+
   const [departmentName, setDepartmentName] = useState<string | null>(null);
   const [assignee, setAssignee] = useState<Person | null>(null);
   const [creator, setCreator] = useState<Person | null>(null);
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
+
   const [error, setError] = useState("");
   const [commentText, setCommentText] = useState("");
 
@@ -165,7 +161,9 @@ export default function TaskDetailPage() {
           id: `comment-${comment.id}`,
           type: "comment",
           created_at: comment.created_at,
-          userName: personName(profileMap[comment.user_id] ?? null),
+          userName: comment.user_id
+            ? personName(profileMap[comment.user_id] ?? null)
+            : "Unknown",
           title: "Comment",
           body: comment.comment,
         });
@@ -176,23 +174,23 @@ export default function TaskDetailPage() {
           id: `approval-${approval.id}`,
           type: "approval",
           created_at: approval.created_at,
-          userName: personName(profileMap[approval.user_id] ?? null),
+          userName: approval.user_id
+            ? personName(profileMap[approval.user_id] ?? null)
+            : "Unknown",
           title: `Approval: ${formatStatus(approval.decision)}`,
         });
       }
 
       for (const activity of activityRows) {
-        const detailText = activity.details
-          ? JSON.stringify(activity.details)
-          : undefined;
-
         items.push({
           id: `activity-${activity.id}`,
           type: "activity",
           created_at: activity.created_at,
-          userName: personName(profileMap[activity.user_id] ?? null),
+          userName: activity.user_id
+            ? personName(profileMap[activity.user_id] ?? null)
+            : "Unknown",
           title: formatStatus(activity.action),
-          body: detailText,
+          body: activity.details ? JSON.stringify(activity.details) : undefined,
         });
       }
 
@@ -207,6 +205,7 @@ export default function TaskDetailPage() {
   );
 
   const loadTaskData = useCallback(async () => {
+    setLoading(true);
     setError("");
 
     const {
@@ -228,6 +227,7 @@ export default function TaskDetailPage() {
       .single();
 
     if (!profileData) {
+      setProfile(null);
       setLoading(false);
       return;
     }
@@ -270,27 +270,23 @@ export default function TaskDetailPage() {
       setDepartmentName(null);
     }
 
-    const profileIds = [
-      taskData.assigned_to,
-      taskData.created_by,
-      taskData.approved_by,
-    ].filter((id): id is string => Boolean(id));
-
     const { data: companyProfiles } = await supabase
       .from("profiles")
       .select("id, full_name, email")
       .eq("company_id", profileData.company_id);
 
     const profileMap: Record<string, Person> = {};
+
     for (const companyProfile of companyProfiles ?? []) {
       profileMap[companyProfile.id] = companyProfile;
     }
 
     setAssignee(
-      taskData.assigned_to ? (profileMap[taskData.assigned_to] ?? null) : null
+      taskData.assigned_to ? profileMap[taskData.assigned_to] ?? null : null
     );
+
     setCreator(
-      taskData.created_by ? (profileMap[taskData.created_by] ?? null) : null
+      taskData.created_by ? profileMap[taskData.created_by] ?? null : null
     );
 
     const [commentsResult, approvalsResult, activitiesResult] =
@@ -312,14 +308,13 @@ export default function TaskDetailPage() {
           .order("created_at", { ascending: false }),
       ]);
 
-    const commentRows = commentsResult.data ?? [];
-    const approvalRows = approvalsResult.data ?? [];
-    const activityRows = activitiesResult.data ?? [];
+    buildTimeline(
+      commentsResult.data ?? [],
+      approvalsResult.data ?? [],
+      activitiesResult.data ?? [],
+      profileMap
+    );
 
-    setComments(commentRows);
-    setApprovals(approvalRows);
-    setActivities(activityRows);
-    buildTimeline(commentRows, approvalRows, activityRows, profileMap);
     setLoading(false);
   }, [taskId, buildTimeline]);
 
@@ -327,13 +322,8 @@ export default function TaskDetailPage() {
     loadTaskData();
   }, [loadTaskData]);
 
-  async function logActivity(
-    action: string,
-    details: Record<string, unknown>
-  ) {
-    if (!profile || !task || !user) {
-      return;
-    }
+  async function logActivity(action: string, details: Record<string, unknown>) {
+    if (!profile || !task || !user) return;
 
     await supabase.from("task_activity").insert({
       company_id: profile.company_id,
@@ -345,9 +335,7 @@ export default function TaskDetailPage() {
   }
 
   async function insertApproval(decision: string) {
-    if (!profile || !task || !user) {
-      return;
-    }
+    if (!profile || !task || !user) return;
 
     await supabase.from("task_approvals").insert({
       company_id: profile.company_id,
@@ -358,9 +346,7 @@ export default function TaskDetailPage() {
   }
 
   async function handleStartTask() {
-    if (!task || !user || !profile) {
-      return;
-    }
+    if (!task || !user || !profile) return;
 
     setActionLoading(true);
     setError("");
@@ -386,9 +372,7 @@ export default function TaskDetailPage() {
   }
 
   async function handleSubmitForApproval() {
-    if (!task || !user || !profile) {
-      return;
-    }
+    if (!task || !user || !profile) return;
 
     setActionLoading(true);
     setError("");
@@ -417,9 +401,7 @@ export default function TaskDetailPage() {
   }
 
   async function handleApprove() {
-    if (!task || !user || !profile) {
-      return;
-    }
+    if (!task || !user || !profile) return;
 
     setActionLoading(true);
     setError("");
@@ -452,9 +434,7 @@ export default function TaskDetailPage() {
   }
 
   async function handleReject() {
-    if (!task || !user || !profile) {
-      return;
-    }
+    if (!task || !user || !profile) return;
 
     setActionLoading(true);
     setError("");
@@ -483,9 +463,7 @@ export default function TaskDetailPage() {
   }
 
   async function handleMarkCompleted() {
-    if (!task || !user || !profile) {
-      return;
-    }
+    if (!task || !user || !profile) return;
 
     setActionLoading(true);
     setError("");
@@ -515,9 +493,7 @@ export default function TaskDetailPage() {
   async function handleAddComment(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!task || !user || !profile || !commentText.trim()) {
-      return;
-    }
+    if (!task || !user || !profile || !commentText.trim()) return;
 
     setCommentLoading(true);
     setError("");
@@ -779,8 +755,7 @@ export default function TaskDetailPage() {
                     <div>
                       <p className="font-semibold">{item.title}</p>
                       <p className="text-sm text-slate-400">
-                        {item.userName} •{" "}
-                        {formatDateTime(item.created_at)}
+                        {item.userName} • {formatDateTime(item.created_at)}
                       </p>
                     </div>
                     <span className="w-fit rounded-full bg-white/10 px-3 py-1 text-xs capitalize text-slate-300">

@@ -166,6 +166,8 @@ export default function TaskDetailPage() {
   const [tags, setTags] = useState<Tag[]>([]);
   const [files, setFiles] = useState<TaskFile[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [escalationReason, setEscalationReason] = useState("");
+  const [escalationSeverity, setEscalationSeverity] = useState("high");
 
   const [error, setError] = useState("");
   const [commentText, setCommentText] = useState("");
@@ -409,6 +411,16 @@ export default function TaskDetailPage() {
     setActionLoading(false);
     if (occurrenceError) { setError(occurrenceError.message); return; }
     await loadTaskData();
+  }
+
+  async function handleEscalate(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!task || !escalationReason.trim()) return;
+    setActionLoading(true); setError("");
+    const { error: escalationError } = await supabase.rpc("create_task_escalation", { target_task_id: task.id, escalation_severity: escalationSeverity, escalation_reason: escalationReason.trim() });
+    setActionLoading(false);
+    if (escalationError) { setError(escalationError.message); return; }
+    setEscalationReason(""); await loadTaskData();
   }
 
   async function handleAddComment(event: React.FormEvent<HTMLFormElement>) {
@@ -694,6 +706,16 @@ export default function TaskDetailPage() {
             </button>
           )}
           </div>
+        </section>
+
+        <section className="mt-6 rounded-2xl border border-orange-400/20 bg-orange-400/5 p-5">
+          <h3 className="font-semibold text-orange-200">Escalate blocker</h3>
+          <p className="mt-1 text-sm text-slate-400">Flag an important blocker to managers. An in-app notification is created for them.</p>
+          <form onSubmit={handleEscalate} className="mt-3 flex flex-col gap-3 sm:flex-row">
+            <select value={escalationSeverity} onChange={(event) => setEscalationSeverity(event.target.value)} disabled={actionLoading} className="rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-sm text-white"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="urgent">Urgent</option></select>
+            <input value={escalationReason} onChange={(event) => setEscalationReason(event.target.value)} required placeholder="What needs attention?" disabled={actionLoading} className="min-w-0 flex-1 rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-sm text-white" />
+            <button disabled={actionLoading} className="rounded-xl bg-orange-500 px-5 py-3 text-sm font-semibold text-white disabled:opacity-60">Escalate</button>
+          </form>
         </section>
 
         {canManage && task.task_type === "daily_recurring" && (

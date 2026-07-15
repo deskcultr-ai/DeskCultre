@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — Combined Batches 3 and 4 (in progress)
+
+### Implemented (migration pending)
+
+- Manager review queue, workload reports, in-app escalation notifications, and role-aware navigation.
+- Meetings with attendees, agendas, decisions, and action items that create linked tasks.
+
 ## Unreleased — Batch 2 (in progress)
 
 ### Implemented

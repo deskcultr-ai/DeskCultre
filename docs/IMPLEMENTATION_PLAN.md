@@ -33,6 +33,16 @@ Meetings, attendees, agenda, notes, decisions, reminders and action-item-to-task
 
 ## Risks and controls
 
+## Combined Batches 3 and 4 — final operations layer
+
+- [x] Manager review queue, workload reports, escalation notifications, and role-aware navigation.
+- [x] Meetings with attendees, agendas, decisions, and action items that create linked tasks.
+- [x] In-app notifications for task escalations.
+
+Migration required: `supabase/migrations/202607150003_dashboards_escalations_meetings.sql`. Email or push reminders are intentionally deferred until a delivery provider and retention rules are chosen; in-app notifications are included.
+
+## Risks and controls
+
 - **Unknown live schema/RLS:** use additive, idempotent migration statements and document pre-deploy backup/testing.
 - **Legacy task statuses:** map existing `submitted` to review and preserve compatible transitions.
 - **Client-side authorization:** database RPCs/RLS are authoritative; UI permissions are only affordances.

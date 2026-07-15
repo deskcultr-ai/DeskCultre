@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { AttendancePanel } from "@/components/attendance-panel";
+import { NotificationPanel } from "@/components/notification-panel";
 
 type Profile = {
   id: string;
@@ -295,12 +296,12 @@ export default function DashboardPage() {
             View Tasks
           </Link>
           {["admin", "owner", "manager"].includes(profile.role ?? "") && (
-            <Link
-              href="/settings/organization"
-              className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white"
-            >
-              Organization Settings
-            </Link>
+            <>
+              <Link href="/reviews" className="rounded-xl border border-blue-400/40 px-5 py-3 text-sm font-semibold text-blue-200">Review Queue</Link>
+              <Link href="/reports" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">Workload Reports</Link>
+              <Link href="/meetings" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">Meetings</Link>
+              <Link href="/settings/organization" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">Organization Settings</Link>
+            </>
           )}
         </div>
 
@@ -350,6 +351,7 @@ export default function DashboardPage() {
           companyId={profile.company_id}
           canManage={["admin", "owner", "manager"].includes(profile.role ?? "")}
         />
+        <NotificationPanel />
       </section>
     </main>
   );

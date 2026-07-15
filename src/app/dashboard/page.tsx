@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { AttendancePanel } from "@/components/attendance-panel";
 
 type Profile = {
   id: string;
@@ -293,6 +294,14 @@ export default function DashboardPage() {
           >
             View Tasks
           </Link>
+          {["admin", "owner", "manager"].includes(profile.role ?? "") && (
+            <Link
+              href="/settings/organization"
+              className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white"
+            >
+              Organization Settings
+            </Link>
+          )}
         </div>
 
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -335,6 +344,12 @@ export default function DashboardPage() {
             </div>
           )}
         </section>
+
+        <AttendancePanel
+          userId={profile.id}
+          companyId={profile.company_id}
+          canManage={["admin", "owner", "manager"].includes(profile.role ?? "")}
+        />
       </section>
     </main>
   );

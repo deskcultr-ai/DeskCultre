@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
@@ -10,11 +10,6 @@ type Profile = {
   company_id: string;
   full_name: string | null;
   email: string;
-};
-
-type Department = {
-  id: string;
-  name: string;
 };
 
 type AssigneeProfile = {
@@ -42,6 +37,12 @@ const statusStyles: Record<string, string> = {
   approved: "bg-green-400/10 text-green-300",
   rejected: "bg-red-400/10 text-red-300",
   completed: "bg-emerald-400/10 text-emerald-300",
+  assigned: "bg-indigo-400/10 text-indigo-300",
+  waiting: "bg-amber-400/10 text-amber-300",
+  blocked: "bg-orange-400/10 text-orange-300",
+  under_review: "bg-blue-400/10 text-blue-300",
+  rework: "bg-red-400/10 text-red-300",
+  reopened: "bg-purple-400/10 text-purple-300",
 };
 
 const priorityStyles: Record<string, string> = {
@@ -81,6 +82,48 @@ export default function TasksPage() {
   const [assigneesById, setAssigneesById] = useState<
     Record<string, AssigneeProfile>
   >({});
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [priorityFilter, setPriorityFilter] = useState("all");
+
+  const visibleTasks = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+
+    return tasks.filter((task) => {
+      const assignee = task.assigned_to
+        ? assigneesById[task.assigned_to]
+        : null;
+      const department = task.department_id
+        ? departmentsById[task.department_id]
+        : null;
+      const searchableText = [
+        task.title,
+        task.description,
+        assignee?.full_name,
+        assignee?.email,
+        department,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return (
+        (!normalizedQuery || searchableText.includes(normalizedQuery)) &&
+        (statusFilter === "all" || task.status === statusFilter) &&
+        (priorityFilter === "all" || task.priority === priorityFilter)
+      );
+    });
+  }, [
+    assigneesById,
+    departmentsById,
+    priorityFilter,
+    query,
+    statusFilter,
+    tasks,
+  ]);
+
+  const hasActiveFilters =
+    query.trim() !== "" || statusFilter !== "all" || priorityFilter !== "all";
 
   useEffect(() => {
     async function loadTasks() {
@@ -219,6 +262,68 @@ export default function TasksPage() {
           </div>
         </header>
 
+        {tasks.length > 0 && (
+          <section className="mt-8 rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_180px_auto]">
+              <label>
+                <span className="sr-only">Search tasks</span>
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Search title, person, or department"
+                  className="w-full rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-cyan-400"
+                />
+              </label>
+              <label>
+                <span className="sr-only">Filter by status</span>
+                <select
+                  value={statusFilter}
+                  onChange={(event) => setStatusFilter(event.target.value)}
+                  className="w-full rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-sm text-white outline-none focus:border-cyan-400"
+                >
+                  <option value="all">All statuses</option>
+                  {Object.keys(statusStyles).map((status) => (
+                    <option key={status} value={status}>
+                      {formatStatus(status)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span className="sr-only">Filter by priority</span>
+                <select
+                  value={priorityFilter}
+                  onChange={(event) => setPriorityFilter(event.target.value)}
+                  className="w-full rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-sm text-white outline-none focus:border-cyan-400"
+                >
+                  <option value="all">All priorities</option>
+                  {Object.keys(priorityStyles).map((priority) => (
+                    <option key={priority} value={priority}>
+                      {formatStatus(priority)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery("");
+                  setStatusFilter("all");
+                  setPriorityFilter("all");
+                }}
+                disabled={!hasActiveFilters}
+                className="rounded-xl border border-white/20 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Clear
+              </button>
+            </div>
+            <p className="mt-3 text-xs text-slate-400" aria-live="polite">
+              Showing {visibleTasks.length} of {tasks.length} tasks
+            </p>
+          </section>
+        )}
+
         {tasks.length === 0 ? (
           <div className="mt-10 rounded-3xl border border-white/10 bg-white/5 p-10 text-center">
             <h2 className="text-xl font-semibold">No tasks yet</h2>
@@ -232,9 +337,16 @@ export default function TasksPage() {
               Create Task
             </Link>
           </div>
+        ) : visibleTasks.length === 0 ? (
+          <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-10 text-center">
+            <h2 className="text-xl font-semibold">No matching tasks</h2>
+            <p className="mt-3 text-slate-400">
+              Try a different search or clear the active filters.
+            </p>
+          </div>
         ) : (
           <div className="mt-8 space-y-4">
-            {tasks.map((task) => {
+            {visibleTasks.map((task) => {
               const assignee = task.assigned_to
                 ? assigneesById[task.assigned_to]
                 : null;

@@ -12,6 +12,7 @@ type Profile = {
   full_name: string | null;
   email: string;
   role: string | null;
+  can_review_tasks: boolean;
 };
 
 type Person = {
@@ -37,7 +38,17 @@ type Task = {
   rejected_at: string | null;
   completed_at: string | null;
   created_at: string;
+  task_type: string;
+  brand_id: string | null;
+  channel_id: string | null;
+  team_id: string | null;
+  start_date: string | null;
+  recurrence_end_date: string | null;
+  next_recurrence_on: string | null;
 };
+
+type Tag = { id: string; name: string; color: string };
+type TaskFile = { id: string; file_name: string; file_url: string; file_type: string | null; signedUrl?: string };
 
 type TaskComment = {
   id: string;
@@ -77,6 +88,12 @@ const statusStyles: Record<string, string> = {
   approved: "bg-green-400/10 text-green-300",
   rejected: "bg-red-400/10 text-red-300",
   completed: "bg-emerald-400/10 text-emerald-300",
+  assigned: "bg-indigo-400/10 text-indigo-300",
+  waiting: "bg-amber-400/10 text-amber-300",
+  blocked: "bg-orange-400/10 text-orange-300",
+  under_review: "bg-blue-400/10 text-blue-300",
+  rework: "bg-red-400/10 text-red-300",
+  reopened: "bg-purple-400/10 text-purple-300",
 };
 
 const priorityStyles: Record<string, string> = {
@@ -124,7 +141,7 @@ function personName(person: Person | null) {
 }
 
 function isManagerOrAdmin(role: string | null) {
-  return role === "admin" || role === "manager";
+  return role === "admin" || role === "owner" || role === "manager";
 }
 
 export default function TaskDetailPage() {
@@ -143,9 +160,16 @@ export default function TaskDetailPage() {
   const [assignee, setAssignee] = useState<Person | null>(null);
   const [creator, setCreator] = useState<Person | null>(null);
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
+  const [brandName, setBrandName] = useState<string | null>(null);
+  const [channelName, setChannelName] = useState<string | null>(null);
+  const [teamName, setTeamName] = useState<string | null>(null);
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [files, setFiles] = useState<TaskFile[]>([]);
+  const [uploading, setUploading] = useState(false);
 
   const [error, setError] = useState("");
   const [commentText, setCommentText] = useState("");
+  const [transitionComment, setTransitionComment] = useState("");
 
   const buildTimeline = useCallback(
     (
@@ -205,9 +229,6 @@ export default function TaskDetailPage() {
   );
 
   const loadTaskData = useCallback(async () => {
-    setLoading(true);
-    setError("");
-
     const {
       data: { user: currentUser },
     } = await supabase.auth.getUser();
@@ -222,7 +243,7 @@ export default function TaskDetailPage() {
 
     const { data: profileData } = await supabase
       .from("profiles")
-      .select("id, company_id, full_name, email, role")
+      .select("id, company_id, full_name, email, role, can_review_tasks")
       .eq("id", currentUser.id)
       .single();
 
@@ -237,7 +258,7 @@ export default function TaskDetailPage() {
     const { data: taskData, error: taskError } = await supabase
       .from("tasks")
       .select(
-        "id, company_id, title, description, status, priority, department_id, assigned_to, created_by, approved_by, due_date, submitted_at, approved_at, rejected_at, completed_at, created_at"
+        "id, company_id, title, description, status, priority, department_id, assigned_to, created_by, approved_by, due_date, submitted_at, approved_at, rejected_at, completed_at, created_at, task_type, brand_id, channel_id, team_id, start_date, recurrence_end_date, next_recurrence_on"
       )
       .eq("id", taskId)
       .single();
@@ -258,17 +279,16 @@ export default function TaskDetailPage() {
 
     setTask(taskData);
 
-    if (taskData.department_id) {
-      const { data: departmentData } = await supabase
-        .from("departments")
-        .select("name")
-        .eq("id", taskData.department_id)
-        .single();
-
-      setDepartmentName(departmentData?.name ?? null);
-    } else {
-      setDepartmentName(null);
-    }
+    const [departmentResult, brandResult, channelResult, teamResult] = await Promise.all([
+      taskData.department_id ? supabase.from("departments").select("name").eq("id", taskData.department_id).single() : Promise.resolve({ data: null }),
+      taskData.brand_id ? supabase.from("brands").select("name").eq("id", taskData.brand_id).single() : Promise.resolve({ data: null }),
+      taskData.channel_id ? supabase.from("channels").select("name").eq("id", taskData.channel_id).single() : Promise.resolve({ data: null }),
+      taskData.team_id ? supabase.from("teams").select("name").eq("id", taskData.team_id).single() : Promise.resolve({ data: null }),
+    ]);
+    setDepartmentName(departmentResult.data?.name ?? null);
+    setBrandName(brandResult.data?.name ?? null);
+    setChannelName(channelResult.data?.name ?? null);
+    setTeamName(teamResult.data?.name ?? null);
 
     const { data: companyProfiles } = await supabase
       .from("profiles")
@@ -289,7 +309,7 @@ export default function TaskDetailPage() {
       taskData.created_by ? profileMap[taskData.created_by] ?? null : null
     );
 
-    const [commentsResult, approvalsResult, activitiesResult] =
+    const [commentsResult, approvalsResult, activitiesResult, tagAssignmentsResult, filesResult] =
       await Promise.all([
         supabase
           .from("task_comments")
@@ -306,7 +326,21 @@ export default function TaskDetailPage() {
           .select("id, user_id, action, details, created_at")
           .eq("task_id", taskId)
           .order("created_at", { ascending: false }),
+        supabase.from("task_tag_assignments").select("tag_id").eq("task_id", taskId),
+        supabase.from("task_files").select("id, file_name, file_url, file_type").eq("task_id", taskId).order("created_at", { ascending: false }),
       ]);
+
+    const tagIds = (tagAssignmentsResult.data ?? []).map((assignment) => assignment.tag_id);
+    if (tagIds.length) {
+      const { data: tagData } = await supabase.from("task_tags").select("id, name, color").in("id", tagIds);
+      setTags(tagData ?? []);
+    } else setTags([]);
+    const fileRows = filesResult.data ?? [];
+    const signedFiles = await Promise.all(fileRows.map(async (file) => {
+      const { data } = await supabase.storage.from("task-files").createSignedUrl(file.file_url, 3600);
+      return { ...file, signedUrl: data?.signedUrl };
+    }));
+    setFiles(signedFiles);
 
     buildTimeline(
       commentsResult.data ?? [],
@@ -319,174 +353,61 @@ export default function TaskDetailPage() {
   }, [taskId, buildTimeline]);
 
   useEffect(() => {
+    // Data loading is intentionally client-side because the Supabase session is
+    // stored in the browser; state updates happen after the async auth lookup.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadTaskData();
   }, [loadTaskData]);
 
-  async function logActivity(action: string, details: Record<string, unknown>) {
-    if (!profile || !task || !user) return;
-
-    await supabase.from("task_activity").insert({
-      company_id: profile.company_id,
-      task_id: task.id,
-      user_id: user.id,
-      action,
-      details,
-    });
-  }
-
-  async function insertApproval(decision: string) {
-    if (!profile || !task || !user) return;
-
-    await supabase.from("task_approvals").insert({
-      company_id: profile.company_id,
-      task_id: task.id,
-      user_id: user.id,
-      decision,
-    });
-  }
-
-  async function handleStartTask() {
+  async function handleTransition(nextStatus: string) {
     if (!task || !user || !profile) return;
+    if (!transitionComment.trim()) {
+      setError("Write a transition comment before changing the status.");
+      return;
+    }
 
     setActionLoading(true);
     setError("");
 
-    const { error: updateError } = await supabase
-      .from("tasks")
-      .update({ status: "in_progress" })
-      .eq("id", task.id);
+    const { error: transitionError } = await supabase.rpc("transition_task", {
+      target_task_id: task.id,
+      next_status: nextStatus,
+      transition_comment: transitionComment.trim(),
+    });
 
-    if (updateError) {
-      setError(updateError.message);
+    if (transitionError) {
+      setError(transitionError.message);
       setActionLoading(false);
       return;
     }
 
-    await logActivity("start_task", {
-      from: task.status,
-      to: "in_progress",
-    });
-
+    setTransitionComment("");
     setActionLoading(false);
     await loadTaskData();
   }
 
-  async function handleSubmitForApproval() {
-    if (!task || !user || !profile) return;
-
-    setActionLoading(true);
-    setError("");
-
-    const now = new Date().toISOString();
-
-    const { error: updateError } = await supabase
-      .from("tasks")
-      .update({ status: "submitted", submitted_at: now })
-      .eq("id", task.id);
-
-    if (updateError) {
-      setError(updateError.message);
-      setActionLoading(false);
-      return;
-    }
-
-    await insertApproval("submitted");
-    await logActivity("submit_for_approval", {
-      from: task.status,
-      to: "submitted",
+  async function handleFileUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const selectedFile = event.target.files?.[0];
+    if (!selectedFile || !task || !profile) return;
+    if (selectedFile.size > 10 * 1024 * 1024) { setError("Files must be 10 MB or smaller."); return; }
+    setUploading(true); setError("");
+    const safeName = selectedFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const path = `${profile.company_id}/${task.id}/${crypto.randomUUID()}-${safeName}`;
+    const { error: uploadError } = await supabase.storage.from("task-files").upload(path, selectedFile, { contentType: selectedFile.type, upsert: false });
+    if (uploadError) { setError(uploadError.message); setUploading(false); return; }
+    const { error: registerError } = await supabase.rpc("register_task_file", {
+      target_task_id: task.id, uploaded_file_name: selectedFile.name, uploaded_file_path: path, uploaded_file_type: selectedFile.type || null,
     });
-
-    setActionLoading(false);
-    await loadTaskData();
+    if (registerError) { await supabase.storage.from("task-files").remove([path]); setError(registerError.message); setUploading(false); return; }
+    event.target.value = ""; setUploading(false); await loadTaskData();
   }
 
-  async function handleApprove() {
-    if (!task || !user || !profile) return;
-
-    setActionLoading(true);
-    setError("");
-
-    const now = new Date().toISOString();
-
-    const { error: updateError } = await supabase
-      .from("tasks")
-      .update({
-        status: "approved",
-        approved_by: user.id,
-        approved_at: now,
-      })
-      .eq("id", task.id);
-
-    if (updateError) {
-      setError(updateError.message);
-      setActionLoading(false);
-      return;
-    }
-
-    await insertApproval("approved");
-    await logActivity("approve_task", {
-      from: task.status,
-      to: "approved",
-    });
-
+  async function handleCreateDailyOccurrence() {
+    if (!task) return;
+    setActionLoading(true); setError("");
+    const { error: occurrenceError } = await supabase.rpc("create_next_daily_occurrence", { template_task_id: task.id });
     setActionLoading(false);
-    await loadTaskData();
-  }
-
-  async function handleReject() {
-    if (!task || !user || !profile) return;
-
-    setActionLoading(true);
-    setError("");
-
-    const now = new Date().toISOString();
-
-    const { error: updateError } = await supabase
-      .from("tasks")
-      .update({ status: "rejected", rejected_at: now })
-      .eq("id", task.id);
-
-    if (updateError) {
-      setError(updateError.message);
-      setActionLoading(false);
-      return;
-    }
-
-    await insertApproval("rejected");
-    await logActivity("reject_task", {
-      from: task.status,
-      to: "rejected",
-    });
-
-    setActionLoading(false);
-    await loadTaskData();
-  }
-
-  async function handleMarkCompleted() {
-    if (!task || !user || !profile) return;
-
-    setActionLoading(true);
-    setError("");
-
-    const now = new Date().toISOString();
-
-    const { error: updateError } = await supabase
-      .from("tasks")
-      .update({ status: "completed", completed_at: now })
-      .eq("id", task.id);
-
-    if (updateError) {
-      setError(updateError.message);
-      setActionLoading(false);
-      return;
-    }
-
-    await logActivity("mark_completed", {
-      from: task.status,
-      to: "completed",
-    });
-
-    setActionLoading(false);
+    if (occurrenceError) { setError(occurrenceError.message); return; }
     await loadTaskData();
   }
 
@@ -579,6 +500,7 @@ export default function TaskDetailPage() {
   }
 
   const canManage = isManagerOrAdmin(profile.role);
+  const canReview = canManage || profile.can_review_tasks;
 
   return (
     <main className="min-h-screen bg-slate-950 px-6 py-8 text-white">
@@ -650,7 +572,27 @@ export default function TaskDetailPage() {
               <p className="text-slate-500">Due Date</p>
               <p className="mt-1 font-medium">{formatDate(task.due_date)}</p>
             </div>
+            <div>
+              <p className="text-slate-500">Task Type</p>
+              <p className="mt-1 font-medium">{formatStatus(task.task_type)}</p>
+            </div>
+            <div>
+              <p className="text-slate-500">Brand</p>
+              <p className="mt-1 font-medium">{brandName ?? "No brand"}</p>
+            </div>
+            <div>
+              <p className="text-slate-500">Sales Channel</p>
+              <p className="mt-1 font-medium">{channelName ?? "No channel"}</p>
+            </div>
+            <div>
+              <p className="text-slate-500">Team</p>
+              <p className="mt-1 font-medium">{teamName ?? "No team"}</p>
+            </div>
+            {task.start_date && <div><p className="text-slate-500">Start Date</p><p className="mt-1 font-medium">{formatDate(task.start_date)}</p></div>}
+            {task.task_type === "daily_recurring" && <div><p className="text-slate-500">Next Occurrence</p><p className="mt-1 font-medium">{formatDate(task.next_recurrence_on)}</p></div>}
           </div>
+
+          {tags.length > 0 && <div className="mt-5 flex flex-wrap gap-2">{tags.map((tag) => <span key={tag.id} className="rounded-full px-3 py-1 text-xs font-semibold" style={{ backgroundColor: `${tag.color}22`, color: tag.color }}>{tag.name}</span>)}</div>}
 
           <div className="mt-6 grid gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 text-xs text-slate-400 sm:grid-cols-2">
             <p>Submitted: {formatDateTime(task.submitted_at)}</p>
@@ -660,39 +602,71 @@ export default function TaskDetailPage() {
           </div>
         </div>
 
-        <div className="mt-6 flex flex-wrap gap-3">
-          {task.status === "pending" && (
+        <section className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-5">
+          <h3 className="font-semibold">Change status</h3>
+          <p className="mt-1 text-sm text-slate-400">
+            Every workflow change requires a written update for the audit trail.
+          </p>
+          <textarea
+            value={transitionComment}
+            onChange={(event) => setTransitionComment(event.target.value)}
+            placeholder="Explain what changed, what is blocked, or why you made this decision..."
+            rows={3}
+            disabled={actionLoading}
+            className={inputClass}
+          />
+          <div className="mt-4 flex flex-wrap gap-3">
+          {(task.status === "pending" || task.status === "assigned" || task.status === "reopened") && (
             <button
-              onClick={handleStartTask}
-              disabled={actionLoading}
+              onClick={() => handleTransition("in_progress")}
+              disabled={actionLoading || !transitionComment.trim()}
               className="rounded-xl bg-cyan-400 px-5 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60"
             >
               Start Task
             </button>
           )}
 
-          {(task.status === "in_progress" || task.status === "rejected") && (
+          {task.status === "in_progress" && (
+            <>
+              <button
+                onClick={() => handleTransition("blocked")}
+                disabled={actionLoading || !transitionComment.trim()}
+                className="rounded-xl bg-orange-500 px-5 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                Mark Blocked
+              </button>
+              <button
+                onClick={() => handleTransition("under_review")}
+                disabled={actionLoading || !transitionComment.trim()}
+                className="rounded-xl bg-blue-500 px-5 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                Submit for Review
+              </button>
+            </>
+          )}
+
+          {(task.status === "blocked" || task.status === "waiting" || task.status === "rework" || task.status === "rejected") && (
             <button
-              onClick={handleSubmitForApproval}
-              disabled={actionLoading}
-              className="rounded-xl bg-blue-500 px-5 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              onClick={() => handleTransition("in_progress")}
+              disabled={actionLoading || !transitionComment.trim()}
+              className="rounded-xl bg-cyan-400 px-5 py-2 text-sm font-semibold text-slate-950 disabled:opacity-60"
             >
-              Submit for Approval
+              Resume Work
             </button>
           )}
 
-          {canManage && task.status === "submitted" && (
+          {canReview && (task.status === "submitted" || task.status === "under_review") && (
             <>
               <button
-                onClick={handleApprove}
-                disabled={actionLoading}
+                onClick={() => handleTransition("approved")}
+                disabled={actionLoading || !transitionComment.trim()}
                 className="rounded-xl bg-green-500 px-5 py-2 text-sm font-semibold text-white disabled:opacity-60"
               >
                 Approve
               </button>
               <button
-                onClick={handleReject}
-                disabled={actionLoading}
+                onClick={() => handleTransition("rework")}
+                disabled={actionLoading || !transitionComment.trim()}
                 className="rounded-xl bg-red-500 px-5 py-2 text-sm font-semibold text-white disabled:opacity-60"
               >
                 Reject / Rework
@@ -702,14 +676,43 @@ export default function TaskDetailPage() {
 
           {canManage && task.status === "approved" && (
             <button
-              onClick={handleMarkCompleted}
-              disabled={actionLoading}
+              onClick={() => handleTransition("completed")}
+              disabled={actionLoading || !transitionComment.trim()}
               className="rounded-xl bg-emerald-500 px-5 py-2 text-sm font-semibold text-white disabled:opacity-60"
             >
               Mark Completed
             </button>
           )}
-        </div>
+
+          {canManage && task.status === "completed" && (
+            <button
+              onClick={() => handleTransition("reopened")}
+              disabled={actionLoading || !transitionComment.trim()}
+              className="rounded-xl border border-cyan-400/50 px-5 py-2 text-sm font-semibold text-cyan-200 disabled:opacity-60"
+            >
+              Reopen Task
+            </button>
+          )}
+          </div>
+        </section>
+
+        {canManage && task.task_type === "daily_recurring" && (
+          <section className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-5">
+            <h3 className="font-semibold">Daily recurrence</h3>
+            <p className="mt-1 text-sm text-slate-400">Create the next due occurrence when the daily work is ready to be assigned.</p>
+            <button onClick={handleCreateDailyOccurrence} disabled={actionLoading} className="mt-4 rounded-xl border border-cyan-400/50 px-5 py-2 text-sm font-semibold text-cyan-200 disabled:opacity-60">Create Next Occurrence</button>
+          </section>
+        )}
+
+        <section className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-5">
+          <h3 className="font-semibold">Attachments</h3>
+          <p className="mt-1 text-sm text-slate-400">PDF, image, Word, or spreadsheet files up to 10 MB.</p>
+          <label className="mt-4 inline-flex cursor-pointer rounded-xl border border-white/20 px-5 py-2 text-sm font-semibold text-white">
+            {uploading ? "Uploading…" : "Attach File"}
+            <input type="file" className="sr-only" disabled={uploading} accept="image/jpeg,image/png,application/pdf,.docx,.xlsx" onChange={handleFileUpload} />
+          </label>
+          {files.length > 0 ? <div className="mt-4 space-y-2">{files.map((file) => file.signedUrl ? <a key={file.id} href={file.signedUrl} target="_blank" rel="noreferrer" className="block rounded-xl bg-slate-900 px-4 py-3 text-sm text-cyan-200 hover:text-cyan-100">{file.file_name}</a> : <p key={file.id} className="rounded-xl bg-slate-900 px-4 py-3 text-sm text-slate-400">{file.file_name}</p>)}</div> : <p className="mt-4 text-sm text-slate-500">No attachments yet.</p>}
+        </section>
 
         {error && <p className="mt-4 text-sm text-red-300">{error}</p>}
 

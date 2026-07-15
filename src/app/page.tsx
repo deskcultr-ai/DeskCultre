@@ -1,114 +1,106 @@
-const tasks = [
-  {
-    title: "Prepare monthly sales report",
-    department: "Sales",
-    assignee: "Amit",
-    status: "In Progress",
-    priority: "High",
-    due: "Today",
-  },
-  {
-    title: "Upload vendor payment proof",
-    department: "Accounts",
-    assignee: "Priya",
-    status: "Submitted",
-    priority: "Medium",
-    due: "Tomorrow",
-  },
-  {
-    title: "Review product photos",
-    department: "Marketing",
-    assignee: "Rohit",
-    status: "Pending",
-    priority: "Low",
-    due: "Friday",
-  },
-];
+"use client";
 
-export default function Home() {
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
+
+export default function HomePage() {
+  const router = useRouter();
+  const [checkingSession, setCheckingSession] = useState(true);
+  const [email, setEmail] = useState("");
+  const [sending, setSending] = useState(false);
+  const [message, setMessage] = useState("");
+  const [messageType, setMessageType] = useState<"success" | "error" | "">("");
+
+  useEffect(() => {
+    async function checkSession() {
+      const { data } = await supabase.auth.getSession();
+      if (data.session) {
+        router.replace("/dashboard");
+        return;
+      }
+      setCheckingSession(false);
+    }
+
+    checkSession();
+  }, [router]);
+
+  async function handleLogin(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSending(true);
+    setMessage("Sending your secure sign-in link...");
+    setMessageType("");
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: { emailRedirectTo: `${window.location.origin}/dashboard` },
+    });
+
+    setSending(false);
+    if (error) {
+      setMessageType("error");
+      setMessage(error.message);
+      return;
+    }
+    setMessageType("success");
+    setMessage("Check your inbox for a secure FlowDesk sign-in link.");
+  }
+
+  if (checkingSession) {
+    return <main className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-300">Loading FlowDesk...</main>;
+  }
+
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
-      <section className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-6 py-8">
-        <nav className="flex items-center justify-between">
+    <main className="min-h-screen bg-slate-950 px-6 py-8 text-white">
+      <section className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-6xl items-center">
+        <div className="grid w-full gap-12 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
           <div>
-            <p className="text-sm text-cyan-300">FlowDesk</p>
-            <h1 className="text-2xl font-bold">Office Task Management</h1>
-          </div>
-
-          <button className="rounded-full bg-cyan-400 px-5 py-2 text-sm font-semibold text-slate-950">
-            Create Task
-          </button>
-        </nav>
-
-        <div className="grid flex-1 items-center gap-10 py-12 lg:grid-cols-2">
-          <div>
-            <p className="mb-4 inline-block rounded-full border border-cyan-400/40 px-4 py-2 text-sm text-cyan-200">
-              Built for managers, teams, approvals, and proof tracking
+            <p className="text-sm font-semibold text-cyan-300">FlowDesk</p>
+            <h1 className="mt-3 max-w-xl text-4xl font-bold leading-tight sm:text-5xl">
+              Your workday, tasks, and approvals in one place.
+            </h1>
+            <p className="mt-6 max-w-xl text-lg leading-8 text-slate-300">
+              Sign in to manage your assignments, track attendance, collaborate on meetings, and keep work moving.
             </p>
-
-            <h2 className="text-5xl font-bold leading-tight">
-              Manage office tasks from assignment to approval.
-            </h2>
-
-            <p className="mt-6 max-w-xl text-lg text-slate-300">
-              FlowDesk helps your office team create tasks, assign work,
-              submit proof, approve or reject completion, and track everything
-              department-wise.
-            </p>
-
-            <div className="mt-8 flex gap-4">
-              <button className="rounded-xl bg-white px-6 py-3 font-semibold text-slate-950">
-                Start Dashboard
-              </button>
-              <button className="rounded-xl border border-white/20 px-6 py-3 font-semibold text-white">
-                View Reports
-              </button>
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-white/10 bg-white/10 p-5 shadow-2xl">
-            <div className="mb-5 grid grid-cols-3 gap-3">
-              <div className="rounded-2xl bg-slate-900 p-4">
-                <p className="text-sm text-slate-400">Pending</p>
-                <p className="mt-2 text-3xl font-bold">12</p>
-              </div>
-              <div className="rounded-2xl bg-slate-900 p-4">
-                <p className="text-sm text-slate-400">Submitted</p>
-                <p className="mt-2 text-3xl font-bold">5</p>
-              </div>
-              <div className="rounded-2xl bg-slate-900 p-4">
-                <p className="text-sm text-slate-400">Overdue</p>
-                <p className="mt-2 text-3xl font-bold text-red-400">3</p>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              {tasks.map((task) => (
-                <div
-                  key={task.title}
-                  className="rounded-2xl border border-white/10 bg-slate-900 p-4"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <h3 className="font-semibold">{task.title}</h3>
-                      <p className="mt-1 text-sm text-slate-400">
-                        {task.department} • Assigned to {task.assignee}
-                      </p>
-                    </div>
-
-                    <span className="rounded-full bg-cyan-400/10 px-3 py-1 text-xs text-cyan-300">
-                      {task.status}
-                    </span>
-                  </div>
-
-                  <div className="mt-4 flex justify-between text-sm text-slate-400">
-                    <span>Priority: {task.priority}</span>
-                    <span>Due: {task.due}</span>
-                  </div>
+            <div className="mt-8 grid max-w-lg gap-3 sm:grid-cols-3">
+              {[
+                ["Tasks", "Assigned work"],
+                ["Approvals", "Clear decisions"],
+                ["Attendance", "Daily visibility"],
+              ].map(([title, detail]) => (
+                <div key={title} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <p className="font-semibold text-cyan-200">{title}</p>
+                  <p className="mt-1 text-xs text-slate-400">{detail}</p>
                 </div>
               ))}
             </div>
           </div>
+
+          <section className="w-full rounded-3xl border border-white/10 bg-white/10 p-7 shadow-2xl sm:p-9">
+            <p className="text-sm font-semibold text-cyan-300">Welcome back</p>
+            <h2 className="mt-2 text-3xl font-bold">Sign in to FlowDesk</h2>
+            <p className="mt-3 text-slate-300">We will email you a secure, passwordless sign-in link.</p>
+            <form onSubmit={handleLogin} className="mt-8 space-y-5">
+              <label className="block text-sm font-medium text-slate-200">
+                Work email
+                <input
+                  type="email"
+                  required
+                  autoComplete="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="you@company.com"
+                  disabled={sending}
+                  className="mt-2 w-full rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none placeholder:text-slate-500 focus:border-cyan-400 disabled:opacity-60"
+                />
+              </label>
+              <button type="submit" disabled={sending} className="w-full rounded-xl bg-cyan-400 px-5 py-3 font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60">
+                {sending ? "Sending sign-in link..." : "Email me a sign-in link"}
+              </button>
+            </form>
+            {message && <p className={`mt-5 rounded-xl border p-3 text-sm ${messageType === "error" ? "border-red-400/30 bg-red-400/10 text-red-200" : messageType === "success" ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-200" : "border-cyan-400/20 bg-cyan-400/5 text-cyan-100"}`}>{message}</p>}
+            <p className="mt-6 text-xs leading-5 text-slate-500">Use your approved company email address. Contact your administrator if you need workspace access.</p>
+          </section>
         </div>
       </section>
     </main>

@@ -47,6 +47,7 @@ export function AttendancePanel({
   }, []);
 
   useEffect(() => {
+    let heartbeat: number | undefined;
     async function recordAndLoadAttendance() {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
@@ -59,6 +60,9 @@ export function AttendancePanel({
           const result = (await response.json()) as { error?: string };
           setError(result.error ?? "Attendance could not be recorded.");
         }
+        heartbeat = window.setInterval(() => {
+          void fetch("/api/attendance/login", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+        }, 60_000);
       }
 
       let attendanceQuery = supabase
@@ -89,6 +93,7 @@ export function AttendancePanel({
     }
 
     recordAndLoadAttendance();
+    return () => { if (heartbeat) window.clearInterval(heartbeat); };
   }, [canManage, companyId, userId]);
 
   const currentSession = useMemo(

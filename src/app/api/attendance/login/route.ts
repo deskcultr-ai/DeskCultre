@@ -19,6 +19,14 @@ export async function POST(request: Request) {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
+  let action = "login";
+  try { action = ((await request.clone().json()) as { action?: string }).action ?? "login"; } catch { /* heartbeat/login has no body */ }
+  if (action === "logout") {
+    const { data, error } = await authenticatedClient.rpc("record_attendance_logout");
+    if (error) return Response.json({ error: error.message }, { status: 400 });
+    return Response.json({ attendance: data });
+  }
+
   const forwardedFor = request.headers.get("x-forwarded-for");
   const requestIp =
     forwardedFor?.split(",")[0]?.trim() ||

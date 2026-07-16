@@ -176,6 +176,10 @@ export default function DashboardPage() {
   }, []);
 
   async function handleSignOut() {
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (sessionData.session?.access_token) {
+      await fetch("/api/attendance/login", { method: "POST", headers: { Authorization: `Bearer ${sessionData.session.access_token}`, "Content-Type": "application/json" }, body: JSON.stringify({ action: "logout" }) });
+    }
     await supabase.auth.signOut();
     router.push("/login");
   }

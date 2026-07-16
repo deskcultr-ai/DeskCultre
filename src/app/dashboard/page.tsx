@@ -14,6 +14,8 @@ type Profile = {
   full_name: string | null;
   role: string | null;
   company_id: string;
+  avatar_url?: string | null;
+  job_title?: string | null;
 };
 
 type Company = {
@@ -131,7 +133,7 @@ export default function DashboardPage() {
 
       const { data: profileData } = await supabase
         .from("profiles")
-        .select("id, email, full_name, role, company_id")
+        .select("id, email, full_name, role, company_id, avatar_url, job_title")
         .eq("id", currentUser.id)
         .single();
 
@@ -274,13 +276,14 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex flex-col gap-4 sm:items-end">
-            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-              <p className="font-semibold">{displayName}</p>
+            <Link href="/profile" className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+              <div className="flex items-center gap-3"><div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-cyan-400 font-bold text-slate-950">{profile.avatar_url ? <img src={profile.avatar_url} alt="Profile" className="h-full w-full object-cover" /> : displayName.slice(0, 1).toUpperCase()}</div><div><p className="font-semibold">{displayName}</p>
               <p className="text-sm text-slate-400">{displayEmail}</p>
+              {profile.job_title && <p className="text-xs text-slate-400">{profile.job_title}</p>}
               <p className="mt-1 text-xs uppercase tracking-wide text-cyan-300">
                 {displayRole}
-              </p>
-            </div>
+              </p></div></div>
+            </Link>
             <button
               onClick={handleSignOut}
               className="rounded-xl border border-white/20 px-5 py-2 text-sm font-semibold text-white transition hover:border-red-400/50 hover:text-red-300"

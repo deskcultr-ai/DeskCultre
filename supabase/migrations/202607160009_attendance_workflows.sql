@@ -1,0 +1,15 @@
+begin;
+alter table public.attendance_sessions add column if not exists early_logout boolean not null default false;
+alter table public.attendance_sessions add column if not exists overtime_minutes integer not null default 0;
+alter table public.leave_requests add column if not exists days numeric(5,2) generated always as ((ends_on-starts_on)+1) stored;
+create table if not exists public.leave_balances(company_id uuid not null references public.companies(id) on delete cascade, employee_id uuid not null references public.profiles(id) on delete cascade, leave_type text not null, days_remaining numeric(6,2) not null default 0, updated_at timestamptz not null default now(), primary key(company_id,employee_id,leave_type));
+create or replace function public.review_attendance_correction(target_id uuid, decision text, note text default null)
+returns public.attendance_corrections language plpgsql security definer set search_path=public as $$
+declare actor public.profiles%rowtype; c public.attendance_corrections%rowtype; result public.attendance_corrections%rowtype;
+begin select * into actor from public.profiles where id=auth.uid(); if actor.role::text not in ('admin','owner','manager') then raise exception 'Manager access required'; end if; select * into c from public.attendance_corrections where id=target_id and company_id=actor.company_id for update; if not found then raise exception 'Correction not found'; end if; if decision not in ('approved','rejected') then raise exception 'Invalid decision'; end if; update public.attendance_corrections set status=decision,reviewed_by=actor.id,reviewed_at=now(),review_note=nullif(btrim(note),'') where id=c.id returning * into result; if decision='approved' and c.attendance_session_id is not null then update public.attendance_sessions set login_at=coalesce(c.requested_login_at,login_at),logout_at=c.requested_logout_at,last_seen_at=coalesce(c.requested_logout_at,last_seen_at) where id=c.attendance_session_id; end if; return result; end; $$;
+create or replace function public.review_leave_request(target_id uuid, decision text, note text default null)
+returns public.leave_requests language plpgsql security definer set search_path=public as $$
+declare actor public.profiles%rowtype; l public.leave_requests%rowtype; result public.leave_requests%rowtype;
+begin select * into actor from public.profiles where id=auth.uid(); if actor.role::text not in ('admin','owner','manager') then raise exception 'Manager access required'; end if; select * into l from public.leave_requests where id=target_id and company_id=actor.company_id for update; if not found then raise exception 'Leave request not found'; end if; if decision not in ('approved','rejected') then raise exception 'Invalid decision'; end if; update public.leave_requests set status=decision,reviewed_by=actor.id,reviewed_at=now(),review_note=nullif(btrim(note),'') where id=l.id returning * into result; return result; end; $$;
+grant execute on function public.review_attendance_correction(uuid,text,text),public.review_leave_request(uuid,text,text) to authenticated;
+commit;

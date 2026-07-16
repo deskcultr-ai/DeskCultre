@@ -272,6 +272,7 @@ export default function DashboardPage() {
           <div>
             <p className="text-sm font-semibold text-cyan-300">FlowDesk</p>
             <h1 className="mt-1 text-3xl font-bold">Dashboard</h1>
+            <p className="mt-3 text-xl font-semibold text-cyan-200">Welcome, {displayName}!</p>
             <p className="mt-2 text-slate-300">{company.name}</p>
           </div>
 
@@ -292,6 +293,12 @@ export default function DashboardPage() {
             </button>
           </div>
         </header>
+
+        <AttendancePanel
+          userId={profile.id}
+          companyId={profile.company_id}
+          canManage={["admin", "owner", "manager"].includes(profile.role ?? "")}
+        />
 
         <div className="mt-8 flex flex-wrap gap-4">
           <Link
@@ -363,11 +370,6 @@ export default function DashboardPage() {
           )}
         </section>
 
-        <AttendancePanel
-          userId={profile.id}
-          companyId={profile.company_id}
-          canManage={["admin", "owner", "manager"].includes(profile.role ?? "")}
-        />
         <NotificationPanel />
         <div className="mt-8"><Link href="/account" className="text-sm font-semibold text-cyan-300 hover:text-cyan-200">Account & security</Link></div>
       </section>

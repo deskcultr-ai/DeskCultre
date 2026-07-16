@@ -273,6 +273,7 @@ export default function DashboardPage() {
             <p className="text-sm font-semibold text-cyan-300">FlowDesk</p>
             <h1 className="mt-1 text-3xl font-bold">Dashboard</h1>
             <p className="mt-3 text-xl font-semibold text-cyan-200">Welcome, {displayName}!</p>
+            <p className="mt-1 text-sm text-slate-400">{new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</p>
             <p className="mt-2 text-slate-300">{company.name}</p>
           </div>
 

@@ -305,7 +305,7 @@ export default function DashboardPage() {
           </div>
         </header>
 
-        <div className="mt-6 flex justify-end"><DashboardWorkdayTimer userId={profile.id} /></div>
+        <div className="mt-6 flex justify-center"><DashboardWorkdayTimer userId={profile.id} /></div>
 
 
         <div className="mt-8 flex flex-wrap gap-4">

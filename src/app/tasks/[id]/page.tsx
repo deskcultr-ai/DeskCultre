@@ -113,6 +113,18 @@ function formatStatus(status: string) {
     .join(" ");
 }
 
+function formatActivityDetails(details: Record<string, unknown> | null) {
+  if (!details) return "";
+  const from = typeof details.from === "string" ? formatStatus(details.from) : null;
+  const to = typeof details.to === "string" ? formatStatus(details.to) : null;
+  const comment = typeof details.comment === "string" ? details.comment : null;
+  if (from && to) return comment ? `${from} → ${to} · ${comment}` : `${from} → ${to}`;
+  if (comment) return comment;
+  if (typeof details.status === "string") return `Status: ${formatStatus(details.status)}`;
+  if (typeof details.task_type === "string") return `Task type: ${formatStatus(details.task_type)}`;
+  return "Activity recorded";
+}
+
 function formatDateTime(value: string | null) {
   if (!value) return "—";
 
@@ -216,7 +228,7 @@ export default function TaskDetailPage() {
             ? personName(profileMap[activity.user_id] ?? null)
             : "Unknown",
           title: formatStatus(activity.action),
-          body: activity.details ? JSON.stringify(activity.details) : undefined,
+          body: formatActivityDetails(activity.details) || undefined,
         });
       }
 

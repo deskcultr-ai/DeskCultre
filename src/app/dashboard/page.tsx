@@ -303,6 +303,7 @@ export default function DashboardPage() {
               <Link href="/settings/organization" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">Organization Settings</Link>
               <Link href="/settings/people" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">People & Permissions</Link>
               {profile.role === "admin" && <Link href="/settings/registrations" className="rounded-xl border border-cyan-400/40 px-5 py-3 text-sm font-semibold text-cyan-200">Registration Requests</Link>}
+              {profile.role === "admin" && <Link href="/settings/audit" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">Access Audit</Link>}
             </>
           )}
         </div>
@@ -354,6 +355,7 @@ export default function DashboardPage() {
           canManage={["admin", "owner", "manager"].includes(profile.role ?? "")}
         />
         <NotificationPanel />
+        <div className="mt-8"><Link href="/account" className="text-sm font-semibold text-cyan-300 hover:text-cyan-200">Account & security</Link></div>
       </section>
     </main>
   );

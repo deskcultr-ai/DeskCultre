@@ -111,10 +111,10 @@ function StatusCard({
 function DashboardWorkdayTimer({ userId }: { userId: string }) {
   const [firstLogin, setFirstLogin] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
-  useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 30000); return () => window.clearInterval(timer); }, []);
+  useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer); }, []);
   useEffect(() => { async function load() { const start = new Date(); start.setHours(0, 0, 0, 0); const { data } = await supabase.from("attendance_sessions").select("login_at").eq("user_id", userId).gte("login_at", start.toISOString()).order("login_at", { ascending: true }).limit(1).maybeSingle(); setFirstLogin(data?.login_at ?? null); } load(); }, [userId]);
-  const elapsed = firstLogin ? Math.max(0, Math.floor((now - new Date(firstLogin).getTime()) / 1000)) : 0; const hours = Math.floor(elapsed / 3600); const minutes = Math.floor((elapsed % 3600) / 60); const remaining = Math.max(0, 8.5 * 3600 - elapsed); const remainingHours = Math.floor(remaining / 3600); const remainingMinutes = Math.floor((remaining % 3600) / 60);
-  return <div className="rounded-2xl border border-cyan-400/30 bg-cyan-400/5 px-6 py-4 text-center"><p className="text-xs uppercase tracking-wide text-cyan-300">Workday timer</p><p className="mt-1 text-2xl font-bold">{hours}h {minutes.toString().padStart(2, "0")}m</p><p className="text-xs text-slate-400">{remainingHours}h {remainingMinutes.toString().padStart(2, "0")}m remaining</p></div>;
+  const elapsed = firstLogin ? Math.max(0, Math.floor((now - new Date(firstLogin).getTime()) / 1000)) : 0; const hours = Math.floor(elapsed / 3600); const minutes = Math.floor((elapsed % 3600) / 60); const seconds = elapsed % 60; const remaining = Math.max(0, 8.5 * 3600 - elapsed); const remainingHours = Math.floor(remaining / 3600); const remainingMinutes = Math.floor((remaining % 3600) / 60); const remainingSeconds = remaining % 60;
+  return <div className="rounded-2xl border border-cyan-400/30 bg-cyan-400/5 px-6 py-4 text-center"><p className="text-xs uppercase tracking-wide text-cyan-300">Workday timer</p><p className="mt-1 text-2xl font-bold">{hours}h {minutes.toString().padStart(2, "0")}m {seconds.toString().padStart(2, "0")}s</p><p className="text-xs text-slate-400">{remainingHours}h {remainingMinutes.toString().padStart(2, "0")}m {remainingSeconds.toString().padStart(2, "0")}s remaining</p></div>;
 }
 
 export default function DashboardPage() {

@@ -20,7 +20,8 @@ export async function POST(request: Request) {
   });
 
   let action = "login";
-  try { action = ((await request.clone().json()) as { action?: string }).action ?? "login"; } catch { /* heartbeat/login has no body */ }
+  let context: Record<string, unknown> = {};
+  try { const body = (await request.clone().json()) as { action?: string; context?: Record<string, unknown> }; action = body.action ?? "login"; context = body.context ?? {}; } catch { /* heartbeat/login has no body */ }
   if (action === "logout") {
     const { data, error } = await authenticatedClient.rpc("record_attendance_logout");
     if (error) return Response.json({ error: error.message }, { status: 400 });
@@ -38,6 +39,7 @@ export async function POST(request: Request) {
     {
       request_ip: requestIp,
       request_user_agent: request.headers.get("user-agent"),
+      request_context: context,
     }
   );
 

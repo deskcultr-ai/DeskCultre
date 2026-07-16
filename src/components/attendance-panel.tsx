@@ -11,6 +11,7 @@ type AttendanceRow = {
   logout_at: string | null;
   ip_address: string | null;
   user_agent: string | null;
+  device_context: Record<string, unknown> | null;
 };
 
 type Person = {
@@ -53,22 +54,24 @@ export function AttendancePanel({
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
       if (token) {
+        const loginContext = { platform: navigator.platform, language: navigator.language, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, screen: `${window.screen.width}x${window.screen.height}`, pixel_ratio: window.devicePixelRatio, cores: navigator.hardwareConcurrency ?? null, touch_points: navigator.maxTouchPoints ?? 0, referrer: document.referrer || null };
         const response = await fetch("/api/attendance/login", {
           method: "POST",
           headers: { Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ context: loginContext }),
         });
         if (!response.ok) {
           const result = (await response.json()) as { error?: string };
           setError(result.error ?? "Attendance could not be recorded.");
         }
         heartbeat = window.setInterval(() => {
-          void fetch("/api/attendance/login", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+          void fetch("/api/attendance/login", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ context: loginContext }) });
         }, 60_000);
       }
 
       let attendanceQuery = supabase
         .from("attendance_sessions")
-        .select("id, user_id, login_at, last_seen_at, logout_at, ip_address, user_agent")
+        .select("id, user_id, login_at, last_seen_at, logout_at, ip_address, user_agent, device_context")
         .eq("company_id", companyId)
         .order("login_at", { ascending: false })
         .limit(canManage ? 25 : 10);
@@ -134,7 +137,7 @@ export function AttendancePanel({
         <div className="mt-5 overflow-x-auto rounded-2xl border border-white/10">
           <table className="w-full min-w-[640px] text-left text-sm">
             <thead className="bg-white/5 text-slate-400">
-              <tr><th className="px-4 py-3">Person</th><th className="px-4 py-3">Login</th><th className="px-4 py-3">Last seen</th><th className="px-4 py-3">IP address</th><th className="px-4 py-3">Device / browser</th></tr>
+              <tr><th className="px-4 py-3">Person</th><th className="px-4 py-3">Login</th><th className="px-4 py-3">Last seen</th><th className="px-4 py-3">IP address</th><th className="px-4 py-3">Device / browser</th><th className="px-4 py-3">Login context</th></tr>
             </thead>
             <tbody>
               {rows.map((row) => {
@@ -146,6 +149,7 @@ export function AttendancePanel({
                     <td className="px-4 py-3 text-slate-300">{new Date(row.last_seen_at).toLocaleString("en-IN")}</td>
                     <td className="px-4 py-3 font-mono text-xs text-slate-400">{row.ip_address ?? "Unavailable"}</td>
                     <td className="max-w-xs px-4 py-3 text-xs text-slate-400">{row.user_agent ?? "Unavailable"}</td>
+                    <td className="max-w-xs px-4 py-3 text-xs text-slate-400">{row.device_context ? JSON.stringify(row.device_context) : "Unavailable"}</td>
                   </tr>
                 );
               })}

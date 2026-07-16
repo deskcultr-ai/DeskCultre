@@ -10,6 +10,7 @@ type AttendanceRow = {
   last_seen_at: string;
   logout_at: string | null;
   ip_address: string | null;
+  user_agent: string | null;
 };
 
 type Person = {
@@ -67,7 +68,7 @@ export function AttendancePanel({
 
       let attendanceQuery = supabase
         .from("attendance_sessions")
-        .select("id, user_id, login_at, last_seen_at, logout_at, ip_address")
+        .select("id, user_id, login_at, last_seen_at, logout_at, ip_address, user_agent")
         .eq("company_id", companyId)
         .order("login_at", { ascending: false })
         .limit(canManage ? 25 : 10);
@@ -96,13 +97,12 @@ export function AttendancePanel({
     return () => { if (heartbeat) window.clearInterval(heartbeat); };
   }, [canManage, companyId, userId]);
 
-  const currentSession = useMemo(
-    () => rows.find((row) => row.user_id === userId && !row.logout_at) ?? null,
-    [rows, userId]
-  );
-  const elapsedSeconds = currentSession
-    ? Math.max(0, (now - new Date(currentSession.login_at).getTime()) / 1000)
-    : 0;
+  const todaySessions = useMemo(() => {
+    const today = new Date();
+    return rows.filter((row) => { const date = new Date(row.login_at); return row.user_id === userId && date.toDateString() === today.toDateString(); });
+  }, [rows, userId, now]);
+  const firstLoginToday = todaySessions.reduce<string | null>((first, row) => !first || row.login_at < first ? row.login_at : first, null);
+  const elapsedSeconds = firstLoginToday ? Math.max(0, (now - new Date(firstLoginToday).getTime()) / 1000) : 0;
   const remainingSeconds = WORKDAY_SECONDS - elapsedSeconds;
 
   return (
@@ -134,7 +134,7 @@ export function AttendancePanel({
         <div className="mt-5 overflow-x-auto rounded-2xl border border-white/10">
           <table className="w-full min-w-[640px] text-left text-sm">
             <thead className="bg-white/5 text-slate-400">
-              <tr><th className="px-4 py-3">Person</th><th className="px-4 py-3">Login</th><th className="px-4 py-3">Last seen</th><th className="px-4 py-3">IP address</th></tr>
+              <tr><th className="px-4 py-3">Person</th><th className="px-4 py-3">Login</th><th className="px-4 py-3">Last seen</th><th className="px-4 py-3">IP address</th><th className="px-4 py-3">Device / browser</th></tr>
             </thead>
             <tbody>
               {rows.map((row) => {
@@ -145,6 +145,7 @@ export function AttendancePanel({
                     <td className="px-4 py-3 text-slate-300">{new Date(row.login_at).toLocaleString("en-IN")}</td>
                     <td className="px-4 py-3 text-slate-300">{new Date(row.last_seen_at).toLocaleString("en-IN")}</td>
                     <td className="px-4 py-3 font-mono text-xs text-slate-400">{row.ip_address ?? "Unavailable"}</td>
+                    <td className="max-w-xs px-4 py-3 text-xs text-slate-400">{row.user_agent ?? "Unavailable"}</td>
                   </tr>
                 );
               })}

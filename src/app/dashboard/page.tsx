@@ -302,6 +302,7 @@ export default function DashboardPage() {
               <Link href="/meetings" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">Meetings</Link>
               <Link href="/settings/organization" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">Organization Settings</Link>
               <Link href="/settings/people" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">People & Permissions</Link>
+              {profile.role === "admin" && <Link href="/settings/registrations" className="rounded-xl border border-cyan-400/40 px-5 py-3 text-sm font-semibold text-cyan-200">Registration Requests</Link>}
             </>
           )}
         </div>

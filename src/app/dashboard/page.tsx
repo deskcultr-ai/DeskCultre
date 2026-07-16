@@ -309,6 +309,7 @@ export default function DashboardPage() {
               {profile.role === "admin" && <Link href="/settings/registrations" className="rounded-xl border border-cyan-400/40 px-5 py-3 text-sm font-semibold text-cyan-200">Registration Requests</Link>}
               {profile.role === "admin" && <Link href="/settings/audit" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">Access Audit</Link>}
               <Link href="/attendance" className="rounded-xl border border-cyan-400/40 px-5 py-3 text-sm font-semibold text-cyan-200">Attendance</Link>
+              <Link href="/attendance/requests" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">Attendance Requests</Link>
               {['admin','owner','manager'].includes(profile.role ?? '') && <Link href="/settings/attendance" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">Attendance Policy</Link>}
             </>
           )}

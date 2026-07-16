@@ -163,10 +163,14 @@ export default function DashboardPage() {
 
       setDepartments(departmentData ?? []);
 
-      const { data: taskData } = await supabase
+      let taskQuery = supabase
         .from("tasks")
         .select("status, due_date")
         .eq("company_id", profileData.company_id);
+      if (!["admin", "owner", "manager"].includes(profileData.role ?? "")) {
+        taskQuery = taskQuery.or(`assigned_to.eq.${currentUser.id},created_by.eq.${currentUser.id}`);
+      }
+      const { data: taskData } = await taskQuery;
 
       setTaskCounts(countTasks(taskData ?? []));
       setLoading(false);

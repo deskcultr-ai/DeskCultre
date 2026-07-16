@@ -10,6 +10,7 @@ type Profile = {
   company_id: string;
   full_name: string | null;
   email: string;
+  role: string;
 };
 
 type AssigneeProfile = {
@@ -140,7 +141,7 @@ export default function TasksPage() {
 
       const { data: profileData } = await supabase
         .from("profiles")
-        .select("id, company_id, full_name, email")
+        .select("id, company_id, full_name, email, role")
         .eq("id", currentUser.id)
         .single();
 
@@ -151,7 +152,8 @@ export default function TasksPage() {
 
       setProfile(profileData);
 
-      const [tasksResult, departmentsResult, profilesResult] =
+      // eslint-disable-next-line prefer-const
+      let [tasksResult, departmentsResult, profilesResult] =
         await Promise.all([
           supabase
             .from("tasks")
@@ -169,6 +171,15 @@ export default function TasksPage() {
             .select("id, full_name, email")
             .eq("company_id", profileData.company_id),
         ]);
+
+      if (!["admin", "owner", "manager"].includes(profileData.role ?? "")) {
+        tasksResult = await supabase
+          .from("tasks")
+          .select("id, title, description, status, priority, department_id, assigned_to, due_date, created_at")
+          .eq("company_id", profileData.company_id)
+          .or(`assigned_to.eq.${currentUser.id},created_by.eq.${currentUser.id}`)
+          .order("created_at", { ascending: false });
+      }
 
       setTasks(tasksResult.data ?? []);
 

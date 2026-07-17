@@ -79,9 +79,8 @@ const adminNav: NavGroup[] = [
   {
     heading: "Insights",
     items: [
-      { label: "Analytics", icon: icon(ICONS.chart) },
       { label: "Audit Logs", icon: icon(ICONS.logs) },
-      { label: "Settings", icon: icon(ICONS.gear) },
+      { label: "Settings", href: "/admin/settings", icon: icon(ICONS.gear) },
     ],
   },
 ];
@@ -190,14 +189,7 @@ export function AppShell({
             {subtitle && <p className="truncate text-sm text-slate-500">{subtitle}</p>}
           </div>
           {actions}
-          {isAdmin(profile) && (
-            <Link
-              href={variant === "admin" ? "/dashboard" : "/admin"}
-              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
-            >
-              {variant === "admin" ? "Employee view" : "Admin view"}
-            </Link>
-          )}
+
         </header>
 
         <main className="flex-1 p-6">{children}</main>

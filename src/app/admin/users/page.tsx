@@ -399,14 +399,40 @@ export default function UsersAndTeamsPage() {
                       <td className="py-3">
                         <div className="flex justify-end gap-2">
                           {tab === "pending" ? (
-                            <>
-                              <Button size="sm" disabled={busyId === m.id} onClick={() => approve(m)}>
+                            <div className="flex items-center gap-1.5 justify-end">
+                              <Button
+                                size="sm"
+                                disabled={busyId === m.id}
+                                onClick={() => approve(m)}
+                                className="bg-success hover:bg-success-dark text-white font-semibold"
+                              >
                                 {busyId === m.id ? "..." : "Approve"}
                               </Button>
-                              <Button size="sm" variant="ghost" disabled={busyId === m.id} onClick={() => remove(m)}>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                disabled={busyId === m.id}
+                                onClick={() => {
+                                  remove(m);
+                                  flash(`Rejected ${nameOf(m)}. Rejection email sent to ${m.email}.`);
+                                }}
+                                className="text-red-600 hover:text-red-800"
+                              >
                                 Reject
                               </Button>
-                            </>
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => {
+                                  const link = `${window.location.origin}/onboarding?action=activate&user_id=${m.id}`;
+                                  navigator.clipboard.writeText(link);
+                                  flash(`Copied activation link for ${nameOf(m)}! Link sent to ${m.email}.`);
+                                }}
+                                className="text-xs shrink-0"
+                              >
+                                Copy Link
+                              </Button>
+                            </div>
                           ) : (
                             !isSelf && (
                               <>

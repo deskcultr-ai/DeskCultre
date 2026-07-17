@@ -7,7 +7,7 @@ import { getProfile, type Profile } from "@/lib/session";
 import { Button, Input, Card, Alert, Select } from "@/components/ui";
 import { cn } from "@/lib/cn";
 
-type Step = "name" | "who-are-you" | "choose" | "create" | "join";
+type Step = "name" | "who-are-you" | "choose" | "create" | "join" | "waiting-approval";
 
 type PersonaCard = {
   id: string;
@@ -87,34 +87,115 @@ export default function OnboardingPage() {
   // Step 4b: Join Org
   const [inviteCode, setInviteCode] = useState("");
   const [testingRole, setTestingRole] = useState("member");
+  const [availableDepartments, setAvailableDepartments] = useState<{ id: string; name: string }[]>([]);
+  const [selectedDepartment, setSelectedDepartment] = useState<string>("");
+
+  // Waiting Approval States
+  const [pendingCompany, setPendingCompany] = useState<string>("");
+  const [pendingDeptName, setPendingDeptName] = useState<string>("");
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [activationSuccess, setActivationSuccess] = useState("");
 
+  // 1. Core Profile check and redirect
   const check = useCallback(async () => {
     const me = await getProfile();
     if (!me) {
       router.replace("/login");
       return;
     }
+
     if (me.company_id && me.status === "active") {
       router.replace(me.role === "admin" ? "/admin" : "/dashboard");
       return;
     }
+
     setProfile(me);
-    // Pre-fill name from existing profile if available
-    const fullName: string = (me as unknown as Record<string, unknown>).full_name as string ?? "";
-    if (fullName) {
-      const parts = fullName.trim().split(" ");
-      setFirstName(parts[0] ?? "");
-      setLastName(parts.slice(1).join(" ") ?? "");
+
+    // If joined but pending admin approval, switch to Waiting Approval view
+    if (me.company_id && me.status === "pending") {
+      setStep("waiting-approval");
+
+      // Fetch company name & department name to present
+      const [companyRes, deptRes] = await Promise.all([
+        supabase.from("companies").select("name").eq("id", me.company_id).maybeSingle(),
+        me.department_id
+          ? supabase.from("departments").select("name").eq("id", me.department_id).maybeSingle()
+          : Promise.resolve({ data: null }),
+      ]);
+
+      if (companyRes.data) {
+        setPendingCompany(companyRes.data.name);
+      }
+      if (deptRes.data) {
+        setPendingDeptName(deptRes.data.name);
+      }
+    } else {
+      // Pre-fill name from existing profile if available
+      const fullName: string = (me as unknown as Record<string, unknown>).full_name as string ?? "";
+      if (fullName) {
+        const parts = fullName.trim().split(" ");
+        setFirstName(parts[0] ?? "");
+        setLastName(parts.slice(1).join(" ") ?? "");
+      }
     }
+
     setLoading(false);
   }, [router]);
 
+  // 2. Watch for url activation parameters: ?action=activate&user_id=...
   useEffect(() => {
-    check();
+    const params = new URLSearchParams(window.location.search);
+    const action = params.get("action");
+    const userId = params.get("user_id");
+
+    if (action === "activate" && userId) {
+      async function activate() {
+        setLoading(true);
+        const { error } = await supabase.rpc("activate_user_via_link", { target_id: userId });
+        if (error) {
+          setError("Activation link failed or was already used: " + error.message);
+          setLoading(false);
+        } else {
+          setActivationSuccess("Account successfully activated! Loading your panel...");
+          // Refresh profile check to send the user to the panel immediately
+          await check();
+        }
+      }
+      activate();
+    } else {
+      check();
+    }
   }, [check]);
+
+  // 3. Fetch departments in real-time as invite code is typed
+  useEffect(() => {
+    if (inviteCode.trim().length < 4) {
+      setAvailableDepartments([]);
+      setSelectedDepartment("");
+      return;
+    }
+
+    async function fetchDepts() {
+      const { data, error } = await supabase.rpc("get_departments_by_code", {
+        code: inviteCode.trim().toUpperCase(),
+      });
+      if (!error && data) {
+        setAvailableDepartments(data);
+        if (data.length > 0) {
+          setSelectedDepartment(data[0].id);
+        } else {
+          setSelectedDepartment("");
+        }
+      } else {
+        setAvailableDepartments([]);
+        setSelectedDepartment("");
+      }
+    }
+
+    fetchDepts();
+  }, [inviteCode]);
 
   async function saveName(event: React.FormEvent) {
     event.preventDefault();
@@ -123,7 +204,6 @@ export default function OnboardingPage() {
     setBusy(true);
     setError("");
 
-    // Persist the name to the profile
     const { error: updateError } = await supabase
       .from("profiles")
       .update({
@@ -135,7 +215,6 @@ export default function OnboardingPage() {
 
     setBusy(false);
     if (updateError) {
-      // Non-fatal — proceed anyway (RLS may block partial updates)
       console.warn("Could not save name:", updateError.message);
     }
     setStep("who-are-you");
@@ -170,9 +249,11 @@ export default function OnboardingPage() {
     setBusy(true);
     setError("");
 
+    // Pass target_department optionally if selected
     const { error: rpcError } = await supabase.rpc("join_company_for_testing", {
       code: inviteCode.trim().toUpperCase(),
       target_role: testingRole,
+      target_department: selectedDepartment || null,
     });
 
     setBusy(false);
@@ -181,7 +262,21 @@ export default function OnboardingPage() {
       return;
     }
 
-    router.replace(testingRole === "admin" ? "/admin" : "/dashboard");
+    // Refresh profile to trigger "waiting-approval" state display
+    check();
+  }
+
+  async function cancelRequest() {
+    setBusy(true);
+    setError("");
+    const { error: cancelError } = await supabase.rpc("leave_company_for_testing");
+    setBusy(false);
+    if (cancelError) {
+      setError(cancelError.message);
+      return;
+    }
+    setStep("choose");
+    check();
   }
 
   if (loading) {
@@ -189,7 +284,9 @@ export default function OnboardingPage() {
       <main className="grid min-h-screen place-items-center bg-[linear-gradient(180deg,#f7efff_0%,#f0e9ff_58%,#faeaf8_100%)] text-slate-500 font-sans">
         <div className="flex flex-col items-center gap-3">
           <span className="w-8 h-8 rounded-full border-[3px] border-indigo-600 border-t-transparent animate-spin" />
-          <p className="text-sm font-semibold text-slate-600">Loading your profile...</p>
+          <p className="text-sm font-semibold text-slate-600">
+            {activationSuccess ? activationSuccess : "Loading your profile..."}
+          </p>
         </div>
       </main>
     );
@@ -211,41 +308,49 @@ export default function OnboardingPage() {
 
       <section className="relative z-10 w-full max-w-2xl">
         {/* Header */}
-        <div className="flex flex-col items-center text-center mb-8">
-          <div className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-4 py-1 text-xs font-bold text-indigo-600 border border-indigo-100/60 shadow-sm">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-3.5 w-3.5">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12z" />
-            </svg>
-            Authenticated Successfully
-          </div>
-          <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">
-            Configure Your Workspace
-          </h1>
-          <p className="mt-2.5 text-sm text-slate-500 leading-relaxed max-w-md">
-            Let&apos;s set up your DeskCulture OS account in just a few steps.
-          </p>
+        {step !== "waiting-approval" && (
+          <div className="flex flex-col items-center text-center mb-8">
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-4 py-1 text-xs font-bold text-indigo-600 border border-indigo-100/60 shadow-sm">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-3.5 w-3.5">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12z" />
+              </svg>
+              Authenticated Successfully
+            </div>
+            <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">
+              Configure Your Workspace
+            </h1>
+            <p className="mt-2.5 text-sm text-slate-500 leading-relaxed max-w-md">
+              Let&apos;s set up your DeskCulture OS account in just a few steps.
+            </p>
 
-          {/* Progress dots */}
-          <div className="flex items-center gap-2 mt-5">
-            {steps.map((s, i) => (
-              <div
-                key={s}
-                className={cn(
-                  "h-2 rounded-full transition-all duration-300",
-                  i === currentStepIdx
-                    ? "w-6 bg-indigo-600"
-                    : i < currentStepIdx
-                    ? "w-2 bg-indigo-400"
-                    : "w-2 bg-slate-200"
-                )}
-              />
-            ))}
+            {/* Progress dots */}
+            <div className="flex items-center gap-2 mt-5">
+              {steps.map((s, i) => (
+                <div
+                  key={s}
+                  className={cn(
+                    "h-2 rounded-full transition-all duration-300",
+                    i === currentStepIdx
+                      ? "w-6 bg-indigo-600"
+                      : i < currentStepIdx
+                      ? "w-2 bg-indigo-400"
+                      : "w-2 bg-slate-200"
+                  )}
+                />
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         {error && (
           <Alert tone="danger" className="mb-6 rounded-2xl shadow-sm">
             {error}
+          </Alert>
+        )}
+
+        {activationSuccess && (
+          <Alert tone="success" className="mb-6 rounded-2xl shadow-sm">
+            {activationSuccess}
           </Alert>
         )}
 
@@ -349,6 +454,8 @@ export default function OnboardingPage() {
                   const persona = personas.find((p) => p.id === selectedPersona);
                   if (persona?.suggestedPath === "create") {
                     setTestingRole("admin");
+                  } else {
+                    setTestingRole(selectedPersona || "member");
                   }
                   setStep("choose");
                 }}
@@ -525,6 +632,28 @@ export default function OnboardingPage() {
                 </span>
               </label>
 
+              {/* Department Dropdown — loaded in real-time */}
+              <label className="block text-sm font-bold text-slate-700">
+                Select Department
+                <Select
+                  required
+                  value={selectedDepartment}
+                  onChange={(e) => setSelectedDepartment(e.target.value)}
+                  className="mt-2 h-12 rounded-2xl"
+                  disabled={availableDepartments.length === 0}
+                >
+                  {availableDepartments.length === 0 ? (
+                    <option value="">(Enter a valid invite code to view departments)</option>
+                  ) : (
+                    availableDepartments.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name}
+                      </option>
+                    ))
+                  )}
+                </Select>
+              </label>
+
               <label className="block text-sm font-bold text-slate-700">
                 Your Role
                 <Select
@@ -552,12 +681,73 @@ export default function OnboardingPage() {
                 <Button
                   type="submit"
                   className="flex-1 h-12 rounded-2xl font-bold bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center gap-1.5"
-                  disabled={busy}
+                  disabled={busy || !inviteCode.trim() || (availableDepartments.length > 0 && !selectedDepartment)}
                 >
                   {busy ? "Joining..." : "Redeem Invite Code →"}
                 </Button>
               </div>
             </form>
+          </Card>
+        )}
+
+        {/* ── Step 5: Waiting Approval Screen ── */}
+        {step === "waiting-approval" && (
+          <Card className="rounded-3xl border border-indigo-200/60 bg-white/90 p-8 shadow-2xl backdrop-blur-xl text-center flex flex-col items-center">
+            {/* Spinning hourglass or progress loader */}
+            <div className="relative flex items-center justify-center h-20 w-20 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 mb-6 animate-pulse">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-10 w-10 animate-spin">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+              </svg>
+            </div>
+
+            <h2 className="text-2xl font-extrabold tracking-tight text-slate-900">Waiting Approval</h2>
+            <p className="mt-3 text-sm text-slate-600 leading-relaxed max-w-md">
+              Hi <span className="font-semibold text-slate-800">{firstName}</span>! Your request to join{" "}
+              <strong className="text-indigo-600 font-bold">{pendingCompany || "the organization"}</strong>{" "}
+              {pendingDeptName && (
+                <>
+                  in the <strong className="text-slate-800 font-semibold">{pendingDeptName}</strong> department{" "}
+                </>
+              )}
+              is waiting for approval.
+            </p>
+
+            <div className="mt-5 rounded-2xl bg-slate-50 border border-slate-100 p-4 w-full text-left space-y-2 text-xs text-slate-600">
+              <div className="flex justify-between">
+                <span>Selected Role:</span>
+                <span className="font-bold capitalize text-slate-900">{profile?.role.replace("_", " ")}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Account Status:</span>
+                <span className="rounded-full bg-warning-light px-2.5 py-0.5 text-[10px] font-bold text-warning capitalize">
+                  {profile?.status}
+                </span>
+              </div>
+            </div>
+
+            <p className="mt-6 text-sm text-indigo-700 font-medium">
+              ✉️ Check your inbox for the activation link once approved by your admin.
+            </p>
+
+            <div className="mt-8 flex gap-4 w-full border-t border-slate-100 pt-6">
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={busy}
+                onClick={cancelRequest}
+                className="flex-1 h-12 rounded-2xl font-bold border border-red-200 text-red-600 hover:bg-red-50"
+              >
+                Cancel Request
+              </Button>
+              <Button
+                type="button"
+                disabled={busy}
+                onClick={check}
+                className="flex-1 h-12 rounded-2xl font-bold bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center gap-1.5 animate-bounce"
+              >
+                Check Approval
+              </Button>
+            </div>
           </Card>
         )}
       </section>

@@ -42,8 +42,8 @@ const employeeNav: NavGroup[] = [
       { label: "Dashboard", href: "/dashboard", icon: icon(ICONS.home) },
       { label: "Chat", icon: icon(ICONS.chat) },
       { label: "Workspaces", href: "/workspaces", icon: icon(ICONS.grid) },
-      { label: "Tasks", icon: icon(ICONS.check) },
-      { label: "Requests", icon: icon(ICONS.inbox) },
+      { label: "Tasks", href: "/tasks", icon: icon(ICONS.check) },
+      { label: "Requests", href: "/tasks", icon: icon(ICONS.inbox) },
       { label: "Meetings", icon: icon(ICONS.video) },
       { label: "Calendar", icon: icon(ICONS.calendar) },
       { label: "Drive", icon: icon(ICONS.folder) },
@@ -74,8 +74,8 @@ const adminNav: NavGroup[] = [
   {
     heading: "Workplace",
     items: [
-      { label: "Tasks", icon: icon(ICONS.check) },
-      { label: "Requests", icon: icon(ICONS.inbox) },
+      { label: "Tasks", href: "/tasks", icon: icon(ICONS.check) },
+      { label: "Requests", href: "/tasks", icon: icon(ICONS.inbox) },
       { label: "Meetings", icon: icon(ICONS.video) },
       { label: "Announcements", icon: icon(ICONS.chat) },
     ],

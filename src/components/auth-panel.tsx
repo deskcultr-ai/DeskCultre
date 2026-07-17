@@ -28,6 +28,7 @@ export default function AuthPanel({ initialMode = "login" }: AuthPanelProps) {
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [showCheckEmail, setShowCheckEmail] = useState(false);
 
   function switchMode(next: AuthMode) {
     setMode(next);
@@ -134,10 +135,50 @@ export default function AuthPanel({ initialMode = "login" }: AuthPanelProps) {
         : "Your account is active. Redirecting to workspace setup..."
     );
 
+    if (data.user && !data.session) {
+      setShowCheckEmail(true);
+    }
+
     // If user is immediately active (e.g. email confirmation disabled), redirect now.
     if (data.session) {
       router.replace(await getPostAuthRedirect());
     }
+  }
+
+  if (showCheckEmail) {
+    return (
+      <section className="w-full rounded-3xl border border-indigo-200/60 bg-white/90 p-8 shadow-2xl backdrop-blur-xl text-center flex flex-col items-center">
+        <div className="relative flex items-center justify-center h-16 w-16 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 mb-6 animate-pulse">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-8 w-8">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L4.12 8.91A2.25 2.25 0 0 1 3 6.993V6.75" />
+          </svg>
+        </div>
+
+        <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">Activate Your Account</h1>
+        <p className="mt-3 text-sm text-slate-600 leading-relaxed max-w-sm">
+          We&apos;ve sent an activation link to <strong className="text-indigo-600 font-semibold">{email}</strong>. 
+          Please check your email and click the link to confirm your account.
+        </p>
+
+        <div className="mt-6 rounded-2xl bg-slate-50 border border-slate-100 p-4 text-xs text-slate-500 text-left space-y-1.5 w-full">
+          <p className="font-semibold text-slate-700">What happens next?</p>
+          <p>1. Open your inbox and verify the email address.</p>
+          <p>2. Click the link to return here and configure your workspace.</p>
+          <p>3. Choose between setting up a new org or joining an existing one.</p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            setShowCheckEmail(false);
+            setMode("login");
+          }}
+          className="mt-6 text-sm font-bold text-indigo-600 hover:text-indigo-500"
+        >
+          Return to Sign In
+        </button>
+      </section>
+    );
   }
 
   return (

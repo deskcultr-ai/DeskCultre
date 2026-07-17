@@ -84,11 +84,11 @@ export default function OnboardingPage() {
   const [customDomain, setCustomDomain] = useState("");
   const [industrySector, setIndustrySector] = useState("Technology & SaaS");
 
-  // Step 4b: Join Org
   const [inviteCode, setInviteCode] = useState("");
   const [testingRole, setTestingRole] = useState("member");
   const [availableDepartments, setAvailableDepartments] = useState<{ id: string; name: string }[]>([]);
   const [selectedDepartment, setSelectedDepartment] = useState<string>("");
+  const [verifiedCompany, setVerifiedCompany] = useState<string>("");
 
   // Waiting Approval States
   const [pendingCompany, setPendingCompany] = useState<string>("");
@@ -169,17 +169,32 @@ export default function OnboardingPage() {
     }
   }, [check]);
 
-  // 3. Fetch departments in real-time as invite code is typed
+  // 3. Fetch departments & verify organization in real-time as invite code is typed
   useEffect(() => {
     if (inviteCode.trim().length < 4) {
       setAvailableDepartments([]);
       setSelectedDepartment("");
+      setVerifiedCompany("");
       return;
     }
 
     async function fetchDepts() {
+      const trimmedCode = inviteCode.trim().toUpperCase();
+      // Fetch company name first to confirm invite code is valid
+      const { data: compData, error: compErr } = await supabase
+        .from("companies")
+        .select("name")
+        .eq("join_code", trimmedCode)
+        .maybeSingle();
+
+      if (!compErr && compData) {
+        setVerifiedCompany(compData.name);
+      } else {
+        setVerifiedCompany("");
+      }
+
       const { data, error } = await supabase.rpc("get_departments_by_code", {
-        code: inviteCode.trim().toUpperCase(),
+        code: trimmedCode,
       });
       if (!error && data) {
         setAvailableDepartments(data);
@@ -455,7 +470,7 @@ export default function OnboardingPage() {
                   if (persona?.suggestedPath === "create") {
                     setTestingRole("admin");
                   } else {
-                    setTestingRole(selectedPersona || "member");
+                    setTestingRole(selectedPersona === "employee" ? "member" : (selectedPersona || "member"));
                   }
                   setStep("choose");
                 }}
@@ -627,7 +642,15 @@ export default function OnboardingPage() {
                   placeholder="DC-MKTG-2026"
                   className="mt-2 h-12 rounded-2xl font-mono tracking-wider"
                 />
-                <span className="text-xs text-slate-400 mt-1.5 block leading-relaxed font-normal">
+                {inviteCode.trim().length >= 4 && (
+                  <span className={cn(
+                    "text-xs font-bold mt-1.5 block leading-relaxed",
+                    verifiedCompany ? "text-success" : "text-danger"
+                  )}>
+                    {verifiedCompany ? `✓ Verified organization: ${verifiedCompany}` : "✗ Invite code not found"}
+                  </span>
+                )}
+                <span className="text-xs text-slate-400 mt-1 block leading-relaxed font-normal">
                   Ask your workspace admin for this code — they can find it in Settings → Organization.
                 </span>
               </label>

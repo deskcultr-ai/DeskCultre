@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -72,14 +73,14 @@ const adminNav: NavGroup[] = [
     heading: "Workplace",
     items: [
       { label: "Tasks & Requests", href: "/tasks", icon: icon(ICONS.check) },
-      { label: "Meetings", icon: icon(ICONS.video) },
-      { label: "Announcements", icon: icon(ICONS.chat) },
+      { label: "Meetings", href: "/admin/meetings", icon: icon(ICONS.video) },
+      { label: "Announcements", href: "/admin/announcements", icon: icon(ICONS.chat) },
     ],
   },
   {
     heading: "Insights",
     items: [
-      { label: "Audit Logs", icon: icon(ICONS.logs) },
+      { label: "Audit Logs", href: "/admin/audit", icon: icon(ICONS.logs) },
       { label: "Settings", href: "/admin/settings", icon: icon(ICONS.gear) },
     ],
   },
@@ -104,27 +105,37 @@ export function AppShell({
   const router = useRouter();
   const groups = variant === "admin" ? adminNav : employeeNav;
 
+  // Sync dark mode class from localStorage
+  useEffect(() => {
+    const savedTheme = localStorage.getItem("deskCulture.theme") || "light";
+    if (savedTheme === "dark") {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+  }, []);
+
   async function signOut() {
     await supabase.auth.signOut();
     router.replace("/");
   }
 
   return (
-    <div className="flex min-h-screen bg-[#f8fafc]">
+    <div className="flex min-h-screen bg-[#f8fafc] dark:bg-slate-950 dark:text-slate-100 transition-colors duration-200">
       {/* Sidebar */}
-      <aside className="hidden w-64 shrink-0 flex-col border-r border-slate-200 bg-white lg:flex">
+      <aside className="hidden w-64 shrink-0 flex-col border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 lg:flex">
         <Link href="/" className="flex items-center gap-3 px-6 py-5">
           <div className="grid h-9 w-9 place-items-center rounded-[10px] bg-gradient-to-br from-primary to-violet-500 text-sm font-bold text-white">
             DC
           </div>
-          <span className="text-lg font-extrabold tracking-tight text-slate-900">DeskCulture</span>
+          <span className="text-lg font-extrabold tracking-tight text-slate-900 dark:text-white">DeskCulture</span>
         </Link>
 
         <nav className="flex-1 overflow-y-auto px-3 pb-4">
           {groups.map((group, groupIndex) => (
             <div key={group.heading ?? groupIndex} className="mb-4">
               {group.heading && (
-                <p className="px-3 pb-2 pt-3 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                <p className="px-3 pb-2 pt-3 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                   {group.heading}
                 </p>
               )}
@@ -139,8 +150,8 @@ export function AppShell({
                           className={cn(
                             "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition",
                             active
-                              ? "bg-primary-light text-primary"
-                              : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                              ? "bg-primary-light text-primary dark:bg-indigo-950/60 dark:text-indigo-300"
+                              : "text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/40 hover:text-slate-900 dark:hover:text-white"
                           )}
                         >
                           {item.icon}
@@ -149,11 +160,11 @@ export function AppShell({
                       ) : (
                         <span
                           title="Not built yet"
-                          className="flex cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-300"
+                          className="flex cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 dark:text-slate-700"
                         >
                           {item.icon}
                           {item.label}
-                          <span className="ml-auto text-[10px] font-semibold uppercase text-slate-300">soon</span>
+                          <span className="ml-auto text-[10px] font-semibold uppercase text-slate-300 dark:text-slate-700">soon</span>
                         </span>
                       )}
                     </li>
@@ -164,17 +175,17 @@ export function AppShell({
           ))}
         </nav>
 
-        <div className="border-t border-slate-200 p-4">
+        <div className="border-t border-slate-200 dark:border-slate-800 p-4">
           <div className="flex items-center gap-3">
             <Avatar name={displayName(profile)} src={profile?.avatar_url ?? undefined} size="md" />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-bold text-slate-900">{profile?.full_name || displayName(profile)}</p>
-              <p className="truncate text-xs capitalize text-slate-500">{profile?.role.replace("_", " ")}</p>
+              <p className="truncate text-sm font-bold text-slate-900 dark:text-white">{profile?.full_name || displayName(profile)}</p>
+              <p className="truncate text-xs capitalize text-slate-500 dark:text-slate-400">{profile?.role.replace("_", " ")}</p>
             </div>
           </div>
           <button
             onClick={signOut}
-            className="mt-3 w-full rounded-lg border border-slate-200 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+            className="mt-3 w-full rounded-lg border border-slate-200 dark:border-slate-800 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 transition hover:bg-slate-50 dark:hover:bg-slate-800"
           >
             Sign out
           </button>
@@ -183,16 +194,15 @@ export function AppShell({
 
       {/* Main */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-20 flex items-center gap-4 border-b border-slate-200 bg-white/80 px-6 py-4 backdrop-blur-xl">
+        <header className="sticky top-0 z-20 flex items-center gap-4 border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 px-6 py-4 backdrop-blur-xl">
           <div className="min-w-0 flex-1">
-            <h1 className="truncate text-h3 text-slate-900">{title}</h1>
-            {subtitle && <p className="truncate text-sm text-slate-500">{subtitle}</p>}
+            <h1 className="truncate text-h3 text-slate-900 dark:text-white">{title}</h1>
+            {subtitle && <p className="truncate text-sm text-slate-500 dark:text-slate-400">{subtitle}</p>}
           </div>
           {actions}
-
         </header>
 
-        <main className="flex-1 p-6">{children}</main>
+        <main className="flex-1 p-6 overflow-y-auto">{children}</main>
       </div>
     </div>
   );

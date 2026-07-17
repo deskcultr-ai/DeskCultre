@@ -133,6 +133,12 @@ export default function AdminSettingsPage() {
       setProfMobile(profileRes.data.phone_number || "");
     }
 
+    // Read local theme setting
+    if (typeof window !== "undefined") {
+      const savedTheme = localStorage.getItem("deskCulture.theme") || "light";
+      setAppTheme(savedTheme);
+    }
+
     setLoading(false);
   }, [router]);
 
@@ -215,6 +221,14 @@ export default function AdminSettingsPage() {
 
   async function handleSaveAppearance(e: React.FormEvent) {
     e.preventDefault();
+    if (typeof window !== "undefined") {
+      localStorage.setItem("deskCulture.theme", appTheme);
+      if (appTheme === "dark") {
+        document.documentElement.classList.add("dark");
+      } else {
+        document.documentElement.classList.remove("dark");
+      }
+    }
     setSuccess("Theme and UI configuration successfully saved!");
   }
 

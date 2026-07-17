@@ -31,93 +31,88 @@ function AuthCallbackContent() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    let finished = false;
-    let unmounted = false;
+    let cancelled = false;
 
-    async function finish() {
-      if (finished || unmounted) return;
-      finished = true;
-
-      const pendingRegistration = readPendingRegistration();
-      if (pendingRegistration) {
-        const { error: requestError } = await supabase.rpc("request_workspace_access", {
-          request_first_name: pendingRegistration.firstName,
-          request_last_name: pendingRegistration.lastName,
-          request_phone_number: pendingRegistration.phoneNumber,
-        });
-
-        if (requestError) {
-          setError(requestError.message);
-          return;
-        }
-
-        window.localStorage.removeItem("deskCulture.pendingRegistration");
-      }
-
-      // getPostAuthRedirect() is the single source of truth: it resolves to
-      // /onboarding, /admin or /dashboard from the profile's org + role. Only
-      // honour ?next= when it's a real destination (e.g. password reset).
-      const next = searchParams.get("next");
-      const redirectTo = next === "/account" ? "/account" : await getPostAuthRedirect();
-      router.replace(redirectTo);
-    }
-
-    // The provider can bounce back with a failure (consent denied, bad config…).
-    const providerError = searchParams.get("error_description") ?? searchParams.get("error");
-    if (providerError) {
-      setError(providerError);
-      return;
-    }
-
-    // Do NOT call exchangeCodeForSession() here. The client sets
-    // detectSessionInUrl, so supabase-js already exchanges the ?code= itself on
-    // init and then deletes the PKCE code verifier from storage. Exchanging a
-    // second time races that and fails with "PKCE code verifier not found in
-    // storage". Just wait for the session the automatic exchange establishes.
-    const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) finish();
-    });
-
-    // Covers the case where the exchange already completed before we subscribed.
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session) finish();
-    });
-
-    // If the automatic exchange hasn't produced a session, work out *why* rather
-    // than just timing out. The usual cause is an origin mismatch: the PKCE code
-    // verifier is written to localStorage on the origin where sign-in started, so
-    // if Supabase redirects somewhere else (localhost vs 127.0.0.1, or a
-    // different deployment) the verifier simply isn't here.
-    const timer = setTimeout(() => {
-      if (finished || unmounted) return;
-
-      const hasCode = !!searchParams.get("code");
-      if (!hasCode) {
-        setError("No sign-in code was returned. Start the sign-in again from the login page.");
+    async function handleCallback() {
+      // Surface any provider-side error immediately (e.g. user denied consent).
+      const providerError =
+        searchParams.get("error_description") ?? searchParams.get("error");
+      if (providerError) {
+        setError(providerError);
         return;
       }
 
-      const ref = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").match(/https:\/\/([^.]+)\./)?.[1];
-      const verifierKey = ref ? `sb-${ref}-auth-token-code-verifier` : null;
-      const hasVerifier = verifierKey ? window.localStorage.getItem(verifierKey) !== null : false;
+      const code = searchParams.get("code");
 
-      if (!hasVerifier) {
+      if (!code) {
         setError(
-          `Sign-in could not be completed on this address (${window.location.origin}). The security code ` +
-            `is stored by the page that started the sign-in, and it isn't present here — so the sign-in began ` +
-            `on a different address. In Supabase, set Site URL and Redirect URLs to exactly ${window.location.origin}, ` +
-            `then start again from that same address.`
+          "No sign-in code was returned. Please start the sign-in again from the login page."
         );
         return;
       }
 
-      setError("Timed out while finishing sign in. Please try again.");
-    }, 8000);
+      // Explicitly exchange the PKCE authorisation code for a session.
+      // detectSessionInUrl is disabled in the client to avoid a race where
+      // supabase-js tries to exchange the same one-time code on initialisation.
+      const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+
+      if (cancelled) return;
+
+      if (exchangeError) {
+        // Common cause: the code was already exchanged (e.g. page reloaded).
+        // Attempt to get the existing session before showing an error.
+        const { data: existing } = await supabase.auth.getSession();
+        if (!cancelled && existing.session) {
+          await finishWithSession();
+          return;
+        }
+        setError(
+          `Could not complete sign in: ${exchangeError.message}. ` +
+            `Please try again from the login page.`
+        );
+        return;
+      }
+
+      await finishWithSession();
+    }
+
+    async function finishWithSession() {
+      if (cancelled) return;
+
+      // If this was a Google register flow, persist the profile details.
+      const pendingRegistration = readPendingRegistration();
+      if (pendingRegistration) {
+        const { error: requestError } = await supabase.rpc(
+          "request_workspace_access",
+          {
+            request_first_name: pendingRegistration.firstName,
+            request_last_name: pendingRegistration.lastName,
+            request_phone_number: pendingRegistration.phoneNumber,
+          }
+        );
+        if (!cancelled && requestError) {
+          // Non-fatal: log and continue. The user profile will still be created
+          // by the handle_new_user trigger; they just won't have phone details.
+          console.warn("request_workspace_access failed:", requestError.message);
+        }
+        window.localStorage.removeItem("deskCulture.pendingRegistration");
+      }
+
+      if (cancelled) return;
+
+      const next = searchParams.get("next");
+      const redirectTo =
+        next === "/account" ? "/account" : await getPostAuthRedirect();
+
+      if (!cancelled) {
+        router.replace(redirectTo);
+      }
+    }
+
+    handleCallback();
 
     return () => {
-      unmounted = true;
-      clearTimeout(timer);
-      subscription.subscription.unsubscribe();
+      cancelled = true;
     };
   }, [router, searchParams]);
 
@@ -129,12 +124,24 @@ function AuthCallbackContent() {
         </div>
         <h1 className="mt-5 text-2xl font-black tracking-tight">Finishing sign in</h1>
         <p className="mt-2 text-sm leading-6 text-slate-600">
-          We are confirming your Supabase session and preparing your workspace.
+          We are confirming your session and preparing your workspace.
         </p>
+
+        {!error && (
+          <div className="mt-6 flex justify-center">
+            <span className="h-6 w-6 animate-spin rounded-full border-[3px] border-indigo-600 border-t-transparent" />
+          </div>
+        )}
+
         {error && (
           <>
-            <p className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-600">{error}</p>
-            <Link href="/login" className="mt-5 inline-flex text-sm font-bold text-indigo-600 hover:text-indigo-500">
+            <p className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-600">
+              {error}
+            </p>
+            <Link
+              href="/login"
+              className="mt-5 inline-flex text-sm font-bold text-indigo-600 hover:text-indigo-500"
+            >
               Back to sign in
             </Link>
           </>
@@ -155,6 +162,9 @@ export default function AuthCallbackPage() {
             </div>
             <h1 className="mt-5 text-2xl font-black tracking-tight">Finishing sign in</h1>
             <p className="mt-2 text-sm leading-6 text-slate-600">Preparing your workspace.</p>
+            <div className="mt-6 flex justify-center">
+              <span className="h-6 w-6 animate-spin rounded-full border-[3px] border-indigo-600 border-t-transparent" />
+            </div>
           </section>
         </main>
       }

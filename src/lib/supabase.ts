@@ -10,8 +10,12 @@ if (!supabaseUrl || !supabaseAnonKey) {
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     flowType: "pkce",
-    detectSessionInUrl: true,
+    // We handle the PKCE code exchange manually in /auth/callback to avoid
+    // a race condition where detectSessionInUrl and our own exchangeCodeForSession
+    // call both try to consume the one-time verifier simultaneously.
+    detectSessionInUrl: false,
     persistSession: true,
     autoRefreshToken: true,
   },
 });
+

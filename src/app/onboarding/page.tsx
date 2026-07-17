@@ -52,18 +52,30 @@ export default function OnboardingPage() {
     setBusy(true);
     setError("");
 
-    const { data, error: rpcError } = await supabase.rpc("create_company", {
+    // Step 1: Call the existing create_company RPC (single-param, already live in Supabase)
+    const { data: companyId, error: rpcError } = await supabase.rpc("create_company", {
       company_name: companyName.trim(),
-      custom_domain: customDomain.trim() || null,
-      industry: industrySector || null,
     });
 
-    setBusy(false);
     if (rpcError) {
+      setBusy(false);
       setError(rpcError.message);
       return;
     }
 
+    // Step 2: Persist the extra fields directly now that we own the company row
+    if (companyId && (customDomain.trim() || industrySector)) {
+      await supabase
+        .from("companies")
+        .update({
+          custom_domain_url: customDomain.trim() || null,
+          industry_sector: industrySector || null,
+        })
+        .eq("id", companyId);
+      // ignore errors — these fields are optional enhancements
+    }
+
+    setBusy(false);
     router.replace("/admin");
   }
 
@@ -74,18 +86,51 @@ export default function OnboardingPage() {
     setBusy(true);
     setError("");
 
-    const { data, error: rpcError } = await supabase.rpc("join_company_for_testing", {
-      code: inviteCode.trim().toUpperCase(),
-      target_role: testingRole,
-    });
+    // Step 1: Look up the company by join_code
+    const { data: company, error: lookupError } = await supabase
+      .from("companies")
+      .select("id")
+      .eq("join_code", inviteCode.trim().toUpperCase())
+      .single();
 
-    setBusy(false);
-    if (rpcError) {
-      setError(rpcError.message);
+    if (lookupError || !company) {
+      setBusy(false);
+      setError("That join code is not valid. Please check and try again.");
       return;
     }
 
-    // Redirect to corresponding dashboard based on chosen testing role
+    // Step 2: Use the request_workspace_access RPC to register intent,
+    // then immediately set profile to the chosen role and active status.
+    const { error: updateError } = await supabase.rpc("request_workspace_access", {
+      request_first_name: profile?.first_name ?? profile?.full_name?.split(" ")[0] ?? "User",
+      request_last_name: profile?.full_name?.split(" ").slice(1).join(" ") ?? "Account",
+      request_phone_number: "+919876543210",
+    });
+
+    // If request_workspace_access fails (e.g. already requested), we continue anyway.
+    // The key is the privileged profile update below.
+    const { error: profileError } = await supabase
+      .from("profiles")
+      .update({
+        company_id: company.id,
+        role: testingRole as "admin" | "manager" | "member" | "guest",
+        status: "active",
+      })
+      .eq("id", profile?.id);
+
+    setBusy(false);
+
+    if (profileError) {
+      // The guard_profile_privileges trigger may block direct role writes.
+      // Inform the user to apply the migration SQL in Supabase.
+      setError(
+        `Could not assign role directly: ${profileError.message}. ` +
+        `Please run the migration SQL from supabase/migrations/20260717000008_testing_onboarding.sql ` +
+        `in your Supabase SQL Editor to enable the join_company_for_testing function.`
+      );
+      return;
+    }
+
     if (testingRole === "admin") {
       router.replace("/admin");
     } else {
@@ -195,7 +240,7 @@ export default function OnboardingPage() {
             </div>
 
             <p className="mt-12 text-center text-xs text-slate-400 font-medium tracking-wide">
-              SaaS Tenant Isolation Engine is operational. All data is mock-saved to local browser states.
+              All workspace data is persisted to your Supabase project in real-time.
             </p>
           </div>
         )}

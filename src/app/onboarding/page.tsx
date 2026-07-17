@@ -52,30 +52,21 @@ export default function OnboardingPage() {
     setBusy(true);
     setError("");
 
-    // Step 1: Call the existing create_company RPC (single-param, already live in Supabase)
+    // Call the 3-param overload explicitly so PostgreSQL can unambiguously
+    // resolve it (avoids "could not choose between candidates" when both the
+    // 1-param and 3-param versions exist in the database).
     const { data: companyId, error: rpcError } = await supabase.rpc("create_company", {
       company_name: companyName.trim(),
+      custom_domain: customDomain.trim() || null,
+      industry: industrySector || null,
     });
 
+    setBusy(false);
     if (rpcError) {
-      setBusy(false);
       setError(rpcError.message);
       return;
     }
 
-    // Step 2: Persist the extra fields directly now that we own the company row
-    if (companyId && (customDomain.trim() || industrySector)) {
-      await supabase
-        .from("companies")
-        .update({
-          custom_domain_url: customDomain.trim() || null,
-          industry_sector: industrySector || null,
-        })
-        .eq("id", companyId);
-      // ignore errors — these fields are optional enhancements
-    }
-
-    setBusy(false);
     router.replace("/admin");
   }
 

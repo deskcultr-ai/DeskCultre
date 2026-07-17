@@ -11,6 +11,8 @@ type Profile = {
   full_name: string | null;
   email: string;
   role: string;
+  can_create_tasks: boolean;
+  can_view_reports: boolean;
 };
 
 type AssigneeProfile = {
@@ -141,7 +143,7 @@ export default function TasksPage() {
 
       const { data: profileData } = await supabase
         .from("profiles")
-        .select("id, company_id, full_name, email, role")
+        .select("id, company_id, full_name, email, role, can_create_tasks, can_view_reports")
         .eq("id", currentUser.id)
         .single();
 
@@ -172,7 +174,7 @@ export default function TasksPage() {
             .eq("company_id", profileData.company_id),
         ]);
 
-      if (!["admin", "owner", "manager"].includes(profileData.role ?? "")) {
+      if (!["admin", "owner"].includes(profileData.role ?? "") && !profileData.can_view_reports) {
         tasksResult = await supabase
           .from("tasks")
           .select("id, title, description, status, priority, department_id, assigned_to, due_date, created_at")
@@ -245,6 +247,9 @@ export default function TasksPage() {
     );
   }
 
+  const canCreateTasks =
+    ["admin", "owner"].includes(profile.role ?? "") || profile.can_create_tasks;
+
   return (
     <main className="min-h-screen bg-slate-950 px-6 py-8 text-white">
       <section className="mx-auto max-w-6xl">
@@ -264,12 +269,14 @@ export default function TasksPage() {
             >
               Dashboard
             </Link>
-            <Link
-              href="/tasks/new"
-              className="rounded-xl bg-cyan-400 px-5 py-2 text-sm font-semibold text-slate-950"
-            >
-              Create Task
-            </Link>
+            {canCreateTasks && (
+              <Link
+                href="/tasks/new"
+                className="rounded-xl bg-cyan-400 px-5 py-2 text-sm font-semibold text-slate-950"
+              >
+                Create Task
+              </Link>
+            )}
           </div>
         </header>
 
@@ -341,12 +348,14 @@ export default function TasksPage() {
             <p className="mt-3 text-slate-400">
               Create your first task to start tracking work across your team.
             </p>
-            <Link
-              href="/tasks/new"
-              className="mt-6 inline-block rounded-xl bg-cyan-400 px-6 py-3 font-semibold text-slate-950"
-            >
-              Create Task
-            </Link>
+            {canCreateTasks && (
+              <Link
+                href="/tasks/new"
+                className="mt-6 inline-block rounded-xl bg-cyan-400 px-6 py-3 font-semibold text-slate-950"
+              >
+                Create Task
+              </Link>
+            )}
           </div>
         ) : visibleTasks.length === 0 ? (
           <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-10 text-center">

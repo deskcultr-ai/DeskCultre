@@ -192,8 +192,7 @@ export default function NewTaskPage() {
   }
 
   const canCreateTask =
-    ["admin", "owner", "manager"].includes(profile.role ?? "") ||
-    profile.can_create_tasks;
+    ["admin", "owner"].includes(profile.role ?? "") || profile.can_create_tasks;
 
   if (!canCreateTask) {
     return (
@@ -202,7 +201,7 @@ export default function NewTaskPage() {
           <p className="text-sm font-semibold text-cyan-300">FlowDesk</p>
           <h1 className="mt-3 text-2xl font-bold">Task creation is restricted</h1>
           <p className="mt-3 text-slate-300">
-            A manager can enable task creation for your profile. You can still work on tasks assigned to you.
+            An admin can enable task creation for your profile. You can still work on tasks assigned to you.
           </p>
           <Link href="/tasks" className="mt-6 inline-block rounded-xl border border-white/20 px-6 py-3 text-sm font-semibold text-white">
             Back to Tasks

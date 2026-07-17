@@ -1,7 +1,7 @@
 import Link from "next/link";
 import AuthPanel from "@/components/auth-panel";
 
-export default function LoginPage() {
+export default function RegisterPage() {
   return (
     <main className="relative min-h-screen overflow-hidden bg-[linear-gradient(180deg,#f7efff_0%,#f0e9ff_58%,#faeaf8_100%)] px-6 py-8 text-slate-900">
       <div className="pointer-events-none absolute -left-36 -top-36 h-[520px] w-[520px] rounded-full bg-[#c7b6ff]/45 blur-3xl" />
@@ -14,13 +14,13 @@ export default function LoginPage() {
           </span>
           <span className="text-lg font-black tracking-tight text-slate-950">DeskCulture</span>
         </Link>
-        <Link href="/register" className="text-sm font-bold text-indigo-600 hover:text-indigo-500">
-          Register
+        <Link href="/login" className="text-sm font-bold text-indigo-600 hover:text-indigo-500">
+          Sign in
         </Link>
       </header>
 
-      <section className="relative z-10 mx-auto flex min-h-[calc(100vh-120px)] w-full max-w-md items-center">
-        <AuthPanel initialMode="login" />
+      <section className="relative z-10 mx-auto flex min-h-[calc(100vh-120px)] w-full max-w-md items-center py-8">
+        <AuthPanel initialMode="register" />
       </section>
     </main>
   );

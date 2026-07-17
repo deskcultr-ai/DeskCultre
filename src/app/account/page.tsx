@@ -8,7 +8,7 @@ import { supabase } from "@/lib/supabase";
 type Request = { status: string; review_note: string | null; updated_at: string };
 export default function AccountPage() {
   const router = useRouter(); const [request, setRequest] = useState<Request | null>(null); const [password, setPassword] = useState(""); const [message, setMessage] = useState(""); const [loading, setLoading] = useState(true);
-  const load = useCallback(async () => { const { data } = await supabase.auth.getUser(); if (!data.user) { router.replace("/"); return; } const { data: status } = await supabase.rpc("get_my_registration_status"); setRequest(status); setLoading(false); }, [router]);
+  const load = useCallback(async () => { const { data } = await supabase.auth.getUser(); if (!data.user) { router.replace("/login"); return; } const { data: status } = await supabase.rpc("get_my_registration_status"); setRequest(status); setLoading(false); }, [router]);
   useEffect(() => { // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
   }, [load]);

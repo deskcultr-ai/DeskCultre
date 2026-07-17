@@ -32,12 +32,18 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
 
 # Supabase CLI local metadata
 supabase/.temp/
+
+# local reference / scratch artifacts
+workspace-weaver-main/
+shot.js
+dev-server.log
 
 # typescript
 *.tsbuildinfo

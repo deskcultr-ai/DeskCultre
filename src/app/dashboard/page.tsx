@@ -16,6 +16,12 @@ type Profile = {
   company_id: string;
   avatar_url?: string | null;
   job_title?: string | null;
+  can_create_tasks: boolean;
+  can_review_tasks: boolean;
+  can_manage_people: boolean;
+  can_manage_organization: boolean;
+  can_view_reports: boolean;
+  can_manage_meetings: boolean;
 };
 
 type Company = {
@@ -27,6 +33,7 @@ type Department = {
   id: string;
   name: string;
   company_id: string;
+  senior_manager_id: string | null;
 };
 
 type TaskRow = {
@@ -143,7 +150,7 @@ export default function DashboardPage() {
 
       const { data: profileData } = await supabase
         .from("profiles")
-        .select("id, email, full_name, role, company_id, avatar_url, job_title")
+        .select("id, email, full_name, role, company_id, avatar_url, job_title, can_create_tasks, can_review_tasks, can_manage_people, can_manage_organization, can_view_reports, can_manage_meetings")
         .eq("id", currentUser.id)
         .single();
 
@@ -169,7 +176,7 @@ export default function DashboardPage() {
 
       const { data: departmentData } = await supabase
         .from("departments")
-        .select("id, name, company_id")
+        .select("id, name, company_id, senior_manager_id")
         .eq("company_id", profileData.company_id)
         .order("name");
 
@@ -179,7 +186,7 @@ export default function DashboardPage() {
         .from("tasks")
         .select("status, due_date")
         .eq("company_id", profileData.company_id);
-      if (!["admin", "owner", "manager"].includes(profileData.role ?? "")) {
+      if (!["admin", "owner"].includes(profileData.role ?? "") && !profileData.can_view_reports) {
         taskQuery = taskQuery.or(`assigned_to.eq.${currentUser.id},created_by.eq.${currentUser.id}`);
       }
       const { data: taskData } = await taskQuery;
@@ -274,6 +281,13 @@ export default function DashboardPage() {
     profile.full_name || profile.email || user.email || "User";
   const displayEmail = profile.email || user.email || "";
   const displayRole = profile.role || "Member";
+  const roleIsAdmin = ["admin", "owner"].includes(profile.role ?? "");
+  const canCreateTasks = roleIsAdmin || profile.can_create_tasks;
+  const canReviewTasks = roleIsAdmin || profile.can_review_tasks;
+  const canManagePeople = roleIsAdmin || profile.can_manage_people;
+  const canManageOrganization = roleIsAdmin || profile.can_manage_organization;
+  const canViewReports = roleIsAdmin || profile.can_view_reports;
+  const canManageMeetings = roleIsAdmin || profile.can_manage_meetings;
 
   return (
     <main className="min-h-screen bg-slate-950 px-6 py-8 text-white">
@@ -309,32 +323,30 @@ export default function DashboardPage() {
 
 
         <div className="mt-8 flex flex-wrap gap-4">
-          <Link
-            href="/tasks/new"
-            className="rounded-xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950"
-          >
-            Create Task
-          </Link>
+          {canCreateTasks && (
+            <Link
+              href="/tasks/new"
+              className="rounded-xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950"
+            >
+              Create Task
+            </Link>
+          )}
           <Link
             href="/tasks"
             className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white"
           >
             View Tasks
           </Link>
-          {["admin", "owner", "manager"].includes(profile.role ?? "") && (
-            <>
-              <Link href="/reviews" className="rounded-xl border border-blue-400/40 px-5 py-3 text-sm font-semibold text-blue-200">Review Queue</Link>
-              <Link href="/reports" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">Workload Reports</Link>
-              <Link href="/meetings" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">Meetings</Link>
-              <Link href="/settings/organization" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">Organization Settings</Link>
-              <Link href="/settings/people" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">People & Permissions</Link>
-              {profile.role === "admin" && <Link href="/settings/registrations" className="rounded-xl border border-cyan-400/40 px-5 py-3 text-sm font-semibold text-cyan-200">Registration Requests</Link>}
-              {profile.role === "admin" && <Link href="/settings/audit" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">Access Audit</Link>}
-              <Link href="/attendance" className="rounded-xl border border-cyan-400/40 px-5 py-3 text-sm font-semibold text-cyan-200">Attendance</Link>
-              <Link href="/attendance/requests" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">Attendance Requests</Link>
-              {['admin','owner','manager'].includes(profile.role ?? '') && <Link href="/settings/attendance" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">Attendance Policy</Link>}
-            </>
-          )}
+          {canReviewTasks && <Link href="/reviews" className="rounded-xl border border-blue-400/40 px-5 py-3 text-sm font-semibold text-blue-200">Review Queue</Link>}
+          {canViewReports && <Link href="/reports" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">Workload Reports</Link>}
+          {canManageMeetings && <Link href="/meetings" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">Meetings</Link>}
+          {canManageOrganization && <Link href="/settings/organization" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">Organization Settings</Link>}
+          {canManagePeople && <Link href="/settings/people" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">People & Permissions</Link>}
+          {roleIsAdmin && <Link href="/settings/registrations" className="rounded-xl border border-cyan-400/40 px-5 py-3 text-sm font-semibold text-cyan-200">Registration Requests</Link>}
+          {roleIsAdmin && <Link href="/settings/audit" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">Access Audit</Link>}
+          <Link href="/attendance" className="rounded-xl border border-cyan-400/40 px-5 py-3 text-sm font-semibold text-cyan-200">Attendance</Link>
+          {canManagePeople && <Link href="/attendance/requests" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">Attendance Requests</Link>}
+          {canManagePeople && <Link href="/settings/attendance" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">Attendance Policy</Link>}
         </div>
 
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -372,6 +384,11 @@ export default function DashboardPage() {
                   <h3 className="mt-2 text-lg font-semibold">
                     {department.name}
                   </h3>
+                  {department.senior_manager_id && (
+                    <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-violet-300">
+                      Senior manager assigned
+                    </p>
+                  )}
                 </div>
               ))}
             </div>
@@ -379,7 +396,7 @@ export default function DashboardPage() {
         </section>
 
         <NotificationPanel />
-        <AttendancePanel userId={profile.id} companyId={profile.company_id} canManage={["admin", "owner", "manager"].includes(profile.role ?? "")} />
+        <AttendancePanel userId={profile.id} companyId={profile.company_id} canManage={canManagePeople} />
         <div className="mt-8"><Link href="/account" className="text-sm font-semibold text-cyan-300 hover:text-cyan-200">Account & security</Link></div>
       </section>
     </main>

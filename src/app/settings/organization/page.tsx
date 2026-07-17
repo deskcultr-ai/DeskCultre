@@ -5,14 +5,12 @@ import { useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
-type Profile = { id: string; company_id: string; role: string | null };
+type Profile = { id: string; company_id: string; role: string | null; can_manage_organization: boolean };
 type Company = { id: string; name: string; slug: string | null };
 type Item = { id: string; name: string };
 type Team = Item & { department_id: string | null; description: string | null };
 
 const inputClass = "mt-2 w-full rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none focus:border-cyan-400";
-const managerRoles = ["admin", "owner", "manager"];
-
 export default function OrganizationSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
@@ -38,7 +36,7 @@ export default function OrganizationSettingsPage() {
     const currentUser = authData.user;
     setUser(currentUser);
     if (!currentUser) { setLoading(false); return; }
-    const { data: profileData } = await supabase.from("profiles").select("id, company_id, role").eq("id", currentUser.id).single();
+    const { data: profileData } = await supabase.from("profiles").select("id, company_id, role, can_manage_organization").eq("id", currentUser.id).single();
     if (!profileData) { setLoading(false); return; }
     setProfile(profileData);
     const [companyResult, brandsResult, channelsResult, departmentsResult, teamsResult, tagsResult] = await Promise.all([
@@ -81,9 +79,9 @@ export default function OrganizationSettingsPage() {
   }
 
   if (loading) return <main className="flex min-h-screen items-center justify-center bg-slate-950 text-white">Loading organization settings...</main>;
-  const canManage = profile && managerRoles.includes(profile.role ?? "");
+  const canManage = profile && (["admin", "owner"].includes(profile.role ?? "") || profile.can_manage_organization);
   if (!user || !profile || !company) return <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-white"><section className="rounded-3xl border border-white/10 bg-white/10 p-8 text-center"><h1 className="text-2xl font-bold">Organization setup unavailable</h1><Link href="/dashboard" className="mt-6 inline-block text-cyan-300">Back to Dashboard</Link></section></main>;
-  if (!canManage) return <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-white"><section className="max-w-md rounded-3xl border border-white/10 bg-white/10 p-8 text-center"><h1 className="text-2xl font-bold">Manager access required</h1><p className="mt-3 text-slate-300">Only managers and admins can change organization settings.</p><Link href="/dashboard" className="mt-6 inline-block text-cyan-300">Back to Dashboard</Link></section></main>;
+  if (!canManage) return <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-white"><section className="max-w-md rounded-3xl border border-white/10 bg-white/10 p-8 text-center"><h1 className="text-2xl font-bold">Organization permission required</h1><p className="mt-3 text-slate-300">Only admins and authorized managers can change organization settings.</p><Link href="/dashboard" className="mt-6 inline-block text-cyan-300">Back to Dashboard</Link></section></main>;
 
   return <main className="min-h-screen bg-slate-950 px-6 py-8 text-white"><section className="mx-auto max-w-5xl"><header className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-6"><div><p className="text-sm font-semibold text-cyan-300">FlowDesk</p><h1 className="mt-1 text-3xl font-bold">Organization Settings</h1><p className="mt-2 text-slate-400">Manage the workspace structure used to classify tasks.</p></div><Link href="/dashboard" className="rounded-xl border border-white/20 px-5 py-2 text-sm font-semibold">Dashboard</Link></header>
     {error && <p className="mt-6 rounded-xl border border-red-400/30 bg-red-400/10 p-4 text-sm text-red-200">{error}</p>}

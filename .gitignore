@@ -44,6 +44,11 @@ supabase/.temp/
 workspace-weaver-main/
 shot.js
 dev-server.log
+cf-tail*.log
+
+# cloudflare/open-next generated output
+.open-next/
+.wrangler/
 
 # typescript
 *.tsbuildinfo

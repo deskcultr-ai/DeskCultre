@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "deskculture",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-07-17",
+  // OpenNext needs node compatibility, and the app reads Supabase config from process.env.
+  "compatibility_flags": ["nodejs_compat", "nodejs_compat_populate_process_env"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

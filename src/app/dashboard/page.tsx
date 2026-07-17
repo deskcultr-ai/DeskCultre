@@ -1,404 +1,372 @@
 "use client";
 
-import Link from "next/link";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
-import { AttendancePanel } from "@/components/attendance-panel";
-import { NotificationPanel } from "@/components/notification-panel";
+import { getProfile, displayName, type Profile } from "@/lib/session";
+import { AppShell } from "@/components/app-shell";
+import { Card, Badge, Button, Alert } from "@/components/ui";
 
-type Profile = {
-  id: string;
-  email: string;
-  full_name: string | null;
-  role: string | null;
-  company_id: string;
-  avatar_url?: string | null;
-  job_title?: string | null;
-  can_create_tasks: boolean;
-  can_review_tasks: boolean;
-  can_manage_people: boolean;
-  can_manage_organization: boolean;
-  can_view_reports: boolean;
-  can_manage_meetings: boolean;
-};
+type Task = { id: string; title: string; status: string; priority: string; due_date: string | null };
+type Meeting = { id: string; title: string; starts_at: string };
+type Announcement = { id: string; title: string; body: string | null };
+type Request = { id: string; title: string; status: string };
+type DriveFile = { id: string; name: string; size_bytes: number };
+type Attendance = { id: string; check_in_at: string | null; check_out_at: string | null; status: string };
 
-type Company = {
-  id: string;
-  name: string;
-};
+function fmtBytes(bytes: number) {
+  if (!bytes) return "0 KB";
+  const mb = bytes / 1024 ** 2;
+  return mb < 1 ? `${Math.round(bytes / 1024)} KB` : `${mb.toFixed(1)} MB`;
+}
 
-type Department = {
-  id: string;
-  name: string;
-  company_id: string;
-  senior_manager_id: string | null;
-};
-
-type TaskRow = {
-  status: string;
-  due_date: string | null;
-};
-
-type TaskCounts = {
-  total: number;
-  pending: number;
-  in_progress: number;
-  submitted: number;
-  approved: number;
-  rejected: number;
-  completed: number;
-  overdue: number;
-};
-
-const emptyTaskCounts: TaskCounts = {
-  total: 0,
-  pending: 0,
-  in_progress: 0,
-  submitted: 0,
-  approved: 0,
-  rejected: 0,
-  completed: 0,
-  overdue: 0,
-};
-
-function countTasks(tasks: TaskRow[]): TaskCounts {
-  const today = new Date().toISOString().split("T")[0];
-
+function dueLabel(due: string | null) {
+  if (!due) return null;
+  const today = new Date().toISOString().slice(0, 10);
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  if (due < today) return { text: "Overdue", tone: "danger" as const };
+  if (due === today) return { text: "Due Today", tone: "danger" as const };
+  if (due === tomorrow) return { text: "Due Tomorrow", tone: "warning" as const };
   return {
-    total: tasks.length,
-    pending: tasks.filter((task) => task.status === "pending").length,
-    in_progress: tasks.filter((task) => task.status === "in_progress").length,
-    submitted: tasks.filter((task) => task.status === "submitted").length,
-    approved: tasks.filter((task) => task.status === "approved").length,
-    rejected: tasks.filter((task) => task.status === "rejected").length,
-    completed: tasks.filter((task) => task.status === "completed").length,
-    overdue: tasks.filter(
-      (task) =>
-        task.due_date &&
-        task.due_date < today &&
-        task.status !== "completed"
-    ).length,
+    text: new Date(due).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+    tone: "neutral" as const,
   };
 }
 
-const statCards = [
-  { key: "total", label: "Total Tasks", color: "text-white" },
-  { key: "pending", label: "Pending", color: "text-yellow-300" },
-  { key: "in_progress", label: "In Progress", color: "text-cyan-300" },
-  { key: "submitted", label: "Submitted", color: "text-blue-300" },
-  { key: "approved", label: "Approved", color: "text-green-300" },
-  { key: "rejected", label: "Rejected", color: "text-red-300" },
-  { key: "completed", label: "Completed", color: "text-emerald-300" },
-  { key: "overdue", label: "Overdue", color: "text-red-400" },
-] as const;
-
-function StatusCard({
-  title,
-  children,
-  action,
-}: {
-  title: string;
-  children: React.ReactNode;
-  action?: React.ReactNode;
-}) {
-  return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-white">
-      <section className="w-full max-w-md rounded-3xl border border-white/10 bg-white/10 p-8 text-center shadow-2xl">
-        <p className="text-sm font-semibold text-cyan-300">FlowDesk</p>
-        <h1 className="mt-3 text-2xl font-bold">{title}</h1>
-        <div className="mt-4 text-slate-300">{children}</div>
-        {action && <div className="mt-6">{action}</div>}
-      </section>
-    </main>
-  );
-}
-
-function DashboardWorkdayTimer({ userId }: { userId: string }) {
-  const [firstLogin, setFirstLogin] = useState<string | null>(null);
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer); }, []);
-  useEffect(() => { async function load() { const start = new Date(); start.setHours(0, 0, 0, 0); const { data } = await supabase.from("attendance_sessions").select("login_at").eq("user_id", userId).gte("login_at", start.toISOString()).order("login_at", { ascending: true }).limit(1).maybeSingle(); setFirstLogin(data?.login_at ?? null); } load(); }, [userId]);
-  const scheduleStart = new Date(); scheduleStart.setHours(10, 0, 0, 0); const earlySeconds = Math.max(0, Math.floor((scheduleStart.getTime() - now) / 1000)); const startedLate = firstLogin ? new Date(firstLogin).getTime() > scheduleStart.getTime() : false; const effectiveStart = startedLate && firstLogin ? new Date(firstLogin).getTime() : scheduleStart.getTime(); const elapsed = Math.max(0, Math.floor((now - effectiveStart) / 1000)); const hours = Math.floor(elapsed / 3600); const minutes = Math.floor((elapsed % 3600) / 60); const seconds = elapsed % 60; const remaining = Math.max(0, 8.5 * 3600 - elapsed); const remainingHours = Math.floor(remaining / 3600); const remainingMinutes = Math.floor((remaining % 3600) / 60); const remainingSeconds = remaining % 60;
-  if (now < scheduleStart.getTime()) { const h = Math.floor(earlySeconds / 3600); const m = Math.floor((earlySeconds % 3600) / 60); const s = earlySeconds % 60; return <div className="rounded-2xl border border-red-400/40 bg-red-400/10 px-6 py-4 text-center"><p className="text-xs uppercase tracking-wide text-red-300">Workday starts at 10:00 AM</p><p className="mt-1 text-2xl font-bold text-red-200">Starts in {h}h {m.toString().padStart(2, "0")}m {s.toString().padStart(2, "0")}s</p><p className="text-xs text-red-200/70">Early login recorded; work timer has not started</p></div>; }
-  return <div className="rounded-2xl border border-cyan-400/30 bg-cyan-400/5 px-6 py-4 text-center"><p className="text-xs uppercase tracking-wide text-cyan-300">Workday timer</p><p className="mt-1 text-2xl font-bold">{hours}h {minutes.toString().padStart(2, "0")}m {seconds.toString().padStart(2, "0")}s</p><p className="text-xs text-slate-400">{remainingHours}h {remainingMinutes.toString().padStart(2, "0")}m {remainingSeconds.toString().padStart(2, "0")}s remaining · ends at {new Date(effectiveStart + 8.5 * 3600 * 1000).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })}</p></div>;
-}
-
-export default function DashboardPage() {
+export default function EmployeeDashboardPage() {
   const router = useRouter();
-  const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [company, setCompany] = useState<Company | null>(null);
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [taskCounts, setTaskCounts] = useState<TaskCounts>(emptyTaskCounts);
+  const [loading, setLoading] = useState(true);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [requests, setRequests] = useState<Request[]>([]);
+  const [files, setFiles] = useState<DriveFile[]>([]);
+  const [attendance, setAttendance] = useState<Attendance | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    const me = await getProfile();
+    if (!me) {
+      router.replace("/");
+      return;
+    }
+    setProfile(me);
+
+    if (!me.company_id) {
+      setLoading(false);
+      return;
+    }
+
+    const companyId = me.company_id;
+    const workDate = new Date().toISOString().slice(0, 10);
+    const nowIso = new Date().toISOString();
+
+    const [tasksRes, meetingsRes, annRes, reqRes, filesRes, attRes] = await Promise.all([
+      supabase
+        .from("tasks")
+        .select("id, title, status, priority, due_date")
+        .eq("company_id", companyId)
+        .eq("assignee_id", me.id)
+        .not("status", "in", "(completed,cancelled)")
+        .order("due_date", { ascending: true, nullsFirst: false })
+        .limit(5),
+      supabase
+        .from("meetings")
+        .select("id, title, starts_at")
+        .eq("company_id", companyId)
+        .gte("starts_at", nowIso)
+        .order("starts_at")
+        .limit(3),
+      supabase
+        .from("announcements")
+        .select("id, title, body")
+        .eq("company_id", companyId)
+        .order("created_at", { ascending: false })
+        .limit(3),
+      supabase
+        .from("requests")
+        .select("id, title, status")
+        .eq("company_id", companyId)
+        .in("status", ["pending", "in_progress"])
+        .order("created_at", { ascending: false })
+        .limit(3),
+      supabase
+        .from("drive_files")
+        .select("id, name, size_bytes")
+        .eq("company_id", companyId)
+        .eq("is_trashed", false)
+        .order("updated_at", { ascending: false })
+        .limit(3),
+      supabase
+        .from("attendance_sessions")
+        .select("id, check_in_at, check_out_at, status")
+        .eq("profile_id", me.id)
+        .eq("work_date", workDate)
+        .maybeSingle(),
+    ]);
+
+    setTasks(tasksRes.data ?? []);
+    setMeetings(meetingsRes.data ?? []);
+    setAnnouncements(annRes.data ?? []);
+    setRequests(reqRes.data ?? []);
+    setFiles(filesRes.data ?? []);
+    setAttendance(attRes.data ?? null);
+    setLoading(false);
+  }, [router]);
 
   useEffect(() => {
-    async function loadDashboard() {
-      const {
-        data: { user: currentUser },
-      } = await supabase.auth.getUser();
+    load();
+  }, [load]);
 
-      if (!currentUser) {
-        setUser(null);
-        setLoading(false);
-        return;
-      }
+  async function checkIn() {
+    if (!profile?.company_id) return;
+    setBusy(true);
+    await supabase.from("attendance_sessions").upsert(
+      {
+        company_id: profile.company_id,
+        profile_id: profile.id,
+        work_date: new Date().toISOString().slice(0, 10),
+        check_in_at: new Date().toISOString(),
+        status: "present",
+      },
+      { onConflict: "profile_id,work_date" }
+    );
+    await load();
+    setBusy(false);
+  }
 
-      setUser(currentUser);
-
-      const { data: profileData } = await supabase
-        .from("profiles")
-        .select("id, email, full_name, role, company_id, avatar_url, job_title, can_create_tasks, can_review_tasks, can_manage_people, can_manage_organization, can_view_reports, can_manage_meetings")
-        .eq("id", currentUser.id)
-        .single();
-
-      if (!profileData) {
-        setLoading(false);
-        return;
-      }
-
-      setProfile(profileData);
-
-      const { data: companyData } = await supabase
-        .from("companies")
-        .select("id, name")
-        .eq("id", profileData.company_id)
-        .single();
-
-      if (!companyData) {
-        setLoading(false);
-        return;
-      }
-
-      setCompany(companyData);
-
-      const { data: departmentData } = await supabase
-        .from("departments")
-        .select("id, name, company_id, senior_manager_id")
-        .eq("company_id", profileData.company_id)
-        .order("name");
-
-      setDepartments(departmentData ?? []);
-
-      let taskQuery = supabase
-        .from("tasks")
-        .select("status, due_date")
-        .eq("company_id", profileData.company_id);
-      if (!["admin", "owner"].includes(profileData.role ?? "") && !profileData.can_view_reports) {
-        taskQuery = taskQuery.or(`assigned_to.eq.${currentUser.id},created_by.eq.${currentUser.id}`);
-      }
-      const { data: taskData } = await taskQuery;
-
-      setTaskCounts(countTasks(taskData ?? []));
-      setLoading(false);
-    }
-
-    loadDashboard();
-  }, []);
-
-  async function handleSignOut() {
-    const { data: sessionData } = await supabase.auth.getSession();
-    if (sessionData.session?.access_token) {
-      await fetch("/api/attendance/login", { method: "POST", headers: { Authorization: `Bearer ${sessionData.session.access_token}`, "Content-Type": "application/json" }, body: JSON.stringify({ action: "logout" }) });
-    }
-    await supabase.auth.signOut();
-    router.push("/login");
+  async function checkOut() {
+    if (!attendance) return;
+    setBusy(true);
+    await supabase
+      .from("attendance_sessions")
+      .update({ check_out_at: new Date().toISOString() })
+      .eq("id", attendance.id);
+    await load();
+    setBusy(false);
   }
 
   if (loading) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-950 text-white">
-        <p className="text-slate-300">Loading dashboard...</p>
+      <main className="grid min-h-screen place-items-center bg-[#f8fafc] text-slate-500">
+        Loading your workspace...
       </main>
     );
   }
 
-  if (!user) {
+  if (!profile?.company_id) {
     return (
-      <StatusCard
-        title="Please login to continue"
-        action={
-          <Link
-            href="/login"
-            className="inline-block rounded-xl bg-cyan-400 px-6 py-3 font-semibold text-slate-950"
-          >
-            Go to Login
-          </Link>
-        }
-      >
-        <p>Sign in to access your FlowDesk workspace dashboard.</p>
-      </StatusCard>
+      <AppShell profile={profile} title="Dashboard">
+        <Card className="mx-auto max-w-lg">
+          <h2 className="text-h4 text-slate-900">Waiting for approval</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Your account isn&apos;t assigned to a company yet. An admin needs to approve your registration before your
+            workspace appears here.
+          </p>
+          <Alert tone="info" className="mt-4">
+            Status: <strong className="capitalize">{profile?.status}</strong>
+          </Alert>
+        </Card>
+      </AppShell>
     );
   }
 
-  if (!profile) {
-    return (
-      <StatusCard
-        title="Profile setup pending"
-        action={
-          <button
-            onClick={handleSignOut}
-            className="rounded-xl border border-white/20 px-6 py-3 text-sm font-semibold text-white"
-          >
-            Sign Out
-          </button>
-        }
-      >
-        <p>Signed in as:</p>
-        <p className="mt-2 font-semibold text-white">{user.email}</p>
-        <p className="mt-4 text-sm text-slate-400">
-          Your admin needs to create your profile before you can use the
-          dashboard.
-        </p>
-      </StatusCard>
-    );
-  }
-
-  if (!company) {
-    return (
-      <StatusCard
-        title="Company setup pending"
-        action={
-          <button
-            onClick={handleSignOut}
-            className="rounded-xl border border-white/20 px-6 py-3 text-sm font-semibold text-white"
-          >
-            Sign Out
-          </button>
-        }
-      >
-        <p>Your profile exists, but your company is not set up yet.</p>
-        <p className="mt-4 text-sm text-slate-400">
-          Please contact your admin to finish company setup.
-        </p>
-      </StatusCard>
-    );
-  }
-
-  const displayName =
-    profile.full_name || profile.email || user.email || "User";
-  const displayEmail = profile.email || user.email || "";
-  const displayRole = profile.role || "Member";
-  const roleIsAdmin = ["admin", "owner"].includes(profile.role ?? "");
-  const canCreateTasks = roleIsAdmin || profile.can_create_tasks;
-  const canReviewTasks = roleIsAdmin || profile.can_review_tasks;
-  const canManagePeople = roleIsAdmin || profile.can_manage_people;
-  const canManageOrganization = roleIsAdmin || profile.can_manage_organization;
-  const canViewReports = roleIsAdmin || profile.can_view_reports;
-  const canManageMeetings = roleIsAdmin || profile.can_manage_meetings;
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good Morning" : hour < 18 ? "Good Afternoon" : "Good Evening";
 
   return (
-    <main className="min-h-screen bg-slate-950 px-6 py-8 text-white">
-      <section className="mx-auto max-w-6xl">
-        <header className="flex flex-col gap-6 border-b border-white/10 pb-8 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-sm font-semibold text-cyan-300">FlowDesk</p>
-            <h1 className="mt-1 text-3xl font-bold">Dashboard</h1>
-            <p className="mt-3 text-xl font-semibold text-cyan-200">Welcome, {displayName}!</p>
-            <p className="mt-1 text-sm text-slate-400">{new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</p>
-            <p className="mt-2 text-slate-300">{company.name}</p>
+    <AppShell
+      profile={profile}
+      title={`${greeting}, ${displayName(profile)}! 👋`}
+      subtitle="Here's what's happening in your workspace today."
+      actions={
+        <span className="hidden rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 sm:inline">
+          {new Date().toLocaleDateString(undefined, {
+            weekday: "long",
+            day: "numeric",
+            month: "long",
+            year: "numeric",
+          })}
+        </span>
+      }
+    >
+      <div className="grid gap-6 xl:grid-cols-3">
+        <Card className="xl:col-span-2">
+          <div className="flex items-center justify-between">
+            <h3 className="text-h4 text-slate-900">My Tasks</h3>
+            <span className="text-xs text-slate-400">{tasks.length} open</span>
           </div>
-
-          <div className="flex flex-col gap-4 sm:items-end">
-            <Link href="/profile" className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-              <div className="flex items-center gap-3"><div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-cyan-400 font-bold text-slate-950">{profile.avatar_url ? <img src={profile.avatar_url} alt="Profile" className="h-full w-full object-cover" /> : displayName.slice(0, 1).toUpperCase()}</div><div><p className="font-semibold">{displayName}</p>
-              <p className="text-sm text-slate-400">{displayEmail}</p>
-              {profile.job_title && <p className="text-xs text-slate-400">{profile.job_title}</p>}
-              <p className="mt-1 text-xs uppercase tracking-wide text-cyan-300">
-                {displayRole}
-              </p></div></div>
-            </Link>
-            <button
-              onClick={handleSignOut}
-              className="rounded-xl border border-white/20 px-5 py-2 text-sm font-semibold text-white transition hover:border-red-400/50 hover:text-red-300"
-            >
-              Sign Out
-            </button>
-          </div>
-        </header>
-
-        <div className="mt-6 flex justify-center"><DashboardWorkdayTimer userId={profile.id} /></div>
-
-
-        <div className="mt-8 flex flex-wrap gap-4">
-          {canCreateTasks && (
-            <Link
-              href="/tasks/new"
-              className="rounded-xl bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950"
-            >
-              Create Task
-            </Link>
-          )}
-          <Link
-            href="/tasks"
-            className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white"
-          >
-            View Tasks
-          </Link>
-          {canReviewTasks && <Link href="/reviews" className="rounded-xl border border-blue-400/40 px-5 py-3 text-sm font-semibold text-blue-200">Review Queue</Link>}
-          {canViewReports && <Link href="/reports" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">Workload Reports</Link>}
-          {canManageMeetings && <Link href="/meetings" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">Meetings</Link>}
-          {canManageOrganization && <Link href="/settings/organization" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">Organization Settings</Link>}
-          {canManagePeople && <Link href="/settings/people" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">People & Permissions</Link>}
-          {roleIsAdmin && <Link href="/settings/registrations" className="rounded-xl border border-cyan-400/40 px-5 py-3 text-sm font-semibold text-cyan-200">Registration Requests</Link>}
-          {roleIsAdmin && <Link href="/settings/audit" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">Access Audit</Link>}
-          <Link href="/attendance" className="rounded-xl border border-cyan-400/40 px-5 py-3 text-sm font-semibold text-cyan-200">Attendance</Link>
-          {canManagePeople && <Link href="/attendance/requests" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">Attendance Requests</Link>}
-          {canManagePeople && <Link href="/settings/attendance" className="rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white">Attendance Policy</Link>}
-        </div>
-
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {statCards.map((card) => (
-            <div
-              key={card.key}
-              className="rounded-2xl border border-white/10 bg-white/5 p-5"
-            >
-              <p className="text-sm text-slate-400">{card.label}</p>
-              <p className={`mt-2 text-3xl font-bold ${card.color}`}>
-                {taskCounts[card.key]}
-              </p>
-            </div>
-          ))}
-        </div>
-
-        <section className="mt-10">
-          <h2 className="text-xl font-semibold">Departments</h2>
-          <p className="mt-1 text-sm text-slate-400">
-            Teams in your company workspace
-          </p>
-
-          {departments.length === 0 ? (
-            <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-6 text-slate-400">
-              No departments found for this company.
-            </div>
+          {tasks.length === 0 ? (
+            <Empty message="No open tasks assigned to you." />
           ) : (
-            <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {departments.map((department) => (
-                <div
-                  key={department.id}
-                  className="rounded-2xl border border-white/10 bg-slate-900 p-5"
-                >
-                  <p className="text-sm text-slate-400">Department</p>
-                  <h3 className="mt-2 text-lg font-semibold">
-                    {department.name}
-                  </h3>
-                  {department.senior_manager_id && (
-                    <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-violet-300">
-                      Senior manager assigned
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
+            <ul className="mt-4 space-y-2">
+              {tasks.map((t) => {
+                const due = dueLabel(t.due_date);
+                return (
+                  <li key={t.id} className="flex items-center gap-3 rounded-lg border border-slate-100 p-3">
+                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary-light text-primary">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-4 w-4">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75 11.25 15 15 9.75" />
+                      </svg>
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-slate-900">{t.title}</p>
+                      <p className="text-xs capitalize text-slate-500">
+                        {t.status.replace("_", " ")} · {t.priority} priority
+                      </p>
+                    </div>
+                    {due && <Badge tone={due.tone}>{due.text}</Badge>}
+                  </li>
+                );
+              })}
+            </ul>
           )}
-        </section>
+        </Card>
 
-        <NotificationPanel />
-        <AttendancePanel userId={profile.id} companyId={profile.company_id} canManage={canManagePeople} />
-        <div className="mt-8"><Link href="/account" className="text-sm font-semibold text-cyan-300 hover:text-cyan-200">Account & security</Link></div>
-      </section>
-    </main>
+        <Card>
+          <h3 className="text-h4 text-slate-900">My Attendance</h3>
+          {attendance?.check_in_at ? (
+            <>
+              <Alert tone={attendance.check_out_at ? "info" : "success"} className="mt-4">
+                {attendance.check_out_at ? "Checked out for today." : "You're all set for today! 🎉"}
+              </Alert>
+              <div className="mt-4 grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <p className="text-xs text-slate-400">Check-in</p>
+                  <p className="font-bold text-slate-900">
+                    {new Date(attendance.check_in_at).toLocaleTimeString(undefined, {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400">Status</p>
+                  <Badge tone="success" className="capitalize">
+                    {attendance.status}
+                  </Badge>
+                </div>
+              </div>
+              {!attendance.check_out_at && (
+                <Button variant="secondary" className="mt-5 w-full" onClick={checkOut} disabled={busy}>
+                  {busy ? "Saving..." : "Check out"}
+                </Button>
+              )}
+            </>
+          ) : (
+            <>
+              <p className="mt-3 text-sm text-slate-600">You haven&apos;t checked in today.</p>
+              <Button className="mt-4 w-full" onClick={checkIn} disabled={busy}>
+                {busy ? "Saving..." : "Check in"}
+              </Button>
+            </>
+          )}
+        </Card>
+      </div>
+
+      <div className="mt-6 grid gap-6 xl:grid-cols-3">
+        <Card>
+          <h3 className="text-h4 text-slate-900">Upcoming Meetings</h3>
+          {meetings.length === 0 ? (
+            <Empty message="No upcoming meetings." />
+          ) : (
+            <ul className="mt-4 space-y-3">
+              {meetings.map((m) => {
+                const d = new Date(m.starts_at);
+                return (
+                  <li key={m.id} className="flex items-center gap-3 rounded-lg border border-slate-100 p-3">
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary-light text-primary">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-4 w-4">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="m15.75 10.5 4.72-2.36a.75.75 0 0 1 1.03.67v9.38a.75.75 0 0 1-1.03.67l-4.72-2.36M4.5 6.75h9a1.5 1.5 0 0 1 1.5 1.5v7.5a1.5 1.5 0 0 1-1.5 1.5h-9a1.5 1.5 0 0 1-1.5-1.5v-7.5a1.5 1.5 0 0 1 1.5-1.5Z"
+                        />
+                      </svg>
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-bold text-slate-900">{m.title}</p>
+                      <p className="text-xs text-slate-500">
+                        {d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                      </p>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Card>
+
+        <Card>
+          <h3 className="text-h4 text-slate-900">Department Updates</h3>
+          {announcements.length === 0 ? (
+            <Empty message="No announcements yet." />
+          ) : (
+            <ul className="mt-4 space-y-3">
+              {announcements.map((a) => (
+                <li key={a.id} className="rounded-lg border border-slate-100 p-3">
+                  <p className="text-sm font-bold text-slate-900">{a.title}</p>
+                  {a.body && <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{a.body}</p>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+
+        <Card>
+          <h3 className="text-h4 text-slate-900">Pending Requests</h3>
+          {requests.length === 0 ? (
+            <Empty message="No pending requests." />
+          ) : (
+            <ul className="mt-4 space-y-3">
+              {requests.map((r) => (
+                <li key={r.id} className="flex items-center gap-3 rounded-lg border border-slate-100 p-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-slate-900">{r.title}</p>
+                  </div>
+                  <Badge tone={r.status === "pending" ? "warning" : "info"} className="capitalize">
+                    {r.status.replace("_", " ")}
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      </div>
+
+      <Card className="mt-6">
+        <h3 className="text-h4 text-slate-900">Recent Files</h3>
+        {files.length === 0 ? (
+          <Empty message="No files in Drive yet." />
+        ) : (
+          <ul className="mt-4 grid gap-3 sm:grid-cols-3">
+            {files.map((f) => (
+              <li key={f.id} className="flex items-center gap-3 rounded-lg border border-slate-100 p-3">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-info-light text-info">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-4 w-4">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25M6.75 12h10.5"
+                    />
+                  </svg>
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-slate-900">{f.name}</p>
+                  <p className="text-xs text-slate-400">{fmtBytes(f.size_bytes)}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+    </AppShell>
   );
+}
+
+function Empty({ message }: { message: string }) {
+  return <p className="mt-6 rounded-lg bg-slate-50 p-4 text-center text-sm text-slate-400">{message}</p>;
 }

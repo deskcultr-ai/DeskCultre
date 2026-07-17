@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getPostAuthRedirect } from "@/lib/auth-redirect";
 import LandingVisual from "@/components/landing-visual";
@@ -140,18 +139,20 @@ const pricing: { name: string; price: string; note: string; features: string[]; 
 ];
 
 export default function HomePage() {
-  const router = useRouter();
+  const [signedIn, setSignedIn] = useState(false);
+  const [appHref, setAppHref] = useState("/dashboard");
 
+  // The landing page is public: never auto-redirect a signed-in visitor away
+  // from it. Just swap the nav for a link into their workspace.
   useEffect(() => {
     async function check() {
       const { data } = await supabase.auth.getSession();
       if (!data.session) return;
-      // Single source of truth for where a signed-in user belongs:
-      // /onboarding (no org / not approved), /admin (admins) or /dashboard.
-      router.replace(await getPostAuthRedirect());
+      setSignedIn(true);
+      setAppHref(await getPostAuthRedirect());
     }
     check();
-  }, [router]);
+  }, []);
 
   return (
     <main className="relative min-h-screen w-full overflow-hidden bg-[linear-gradient(180deg,#f7efff_0%,#f0e9ff_58%,#faeaf8_100%)] text-slate-900">
@@ -185,18 +186,29 @@ export default function HomePage() {
         </nav>
 
         <div className="flex items-center gap-3">
-          <Link
-            href="/login"
-            className="hidden text-sm font-medium text-slate-800 transition hover:text-indigo-600 sm:inline"
-          >
-            Log In
-          </Link>
-          <Link
-            href="/register"
-            className="inline-flex h-10 items-center justify-center rounded-full bg-gradient-to-r from-[#6f51f5] to-[#7f50f0] px-6 text-sm font-bold text-white shadow-[0_16px_40px_rgba(99,70,230,0.35)] transition hover:-translate-y-0.5"
-          >
-            Sign Up
-          </Link>
+          {signedIn ? (
+            <Link
+              href={appHref}
+              className="inline-flex h-10 items-center justify-center rounded-full bg-gradient-to-r from-[#6f51f5] to-[#7f50f0] px-6 text-sm font-bold text-white shadow-[0_16px_40px_rgba(99,70,230,0.35)] transition hover:-translate-y-0.5"
+            >
+              Go to workspace
+            </Link>
+          ) : (
+            <>
+              <Link
+                href="/login"
+                className="hidden text-sm font-medium text-slate-800 transition hover:text-indigo-600 sm:inline"
+              >
+                Log In
+              </Link>
+              <Link
+                href="/register"
+                className="inline-flex h-10 items-center justify-center rounded-full bg-gradient-to-r from-[#6f51f5] to-[#7f50f0] px-6 text-sm font-bold text-white shadow-[0_16px_40px_rgba(99,70,230,0.35)] transition hover:-translate-y-0.5"
+              >
+                Sign Up
+              </Link>
+            </>
+          )}
         </div>
       </header>
 

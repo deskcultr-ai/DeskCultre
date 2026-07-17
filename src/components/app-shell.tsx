@@ -41,7 +41,7 @@ const employeeNav: NavGroup[] = [
     items: [
       { label: "Dashboard", href: "/dashboard", icon: icon(ICONS.home) },
       { label: "Chat", icon: icon(ICONS.chat) },
-      { label: "Workspaces", icon: icon(ICONS.grid) },
+      { label: "Workspaces", href: "/workspaces", icon: icon(ICONS.grid) },
       { label: "Tasks", icon: icon(ICONS.check) },
       { label: "Requests", icon: icon(ICONS.inbox) },
       { label: "Meetings", icon: icon(ICONS.video) },
@@ -65,10 +65,10 @@ const adminNav: NavGroup[] = [
   {
     heading: "Manage",
     items: [
-      { label: "Users & Teams", icon: icon(ICONS.users) },
-      { label: "Departments", icon: icon(ICONS.building) },
-      { label: "Roles & Permissions", icon: icon(ICONS.shield) },
-      { label: "Workspaces", icon: icon(ICONS.grid) },
+      { label: "Users & Teams", href: "/admin/users", icon: icon(ICONS.users) },
+      { label: "Departments", href: "/admin/users", icon: icon(ICONS.building) },
+      { label: "Roles & Permissions", href: "/admin/users", icon: icon(ICONS.shield) },
+      { label: "Workspaces", href: "/workspaces", icon: icon(ICONS.grid) },
     ],
   },
   {

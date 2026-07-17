@@ -8,7 +8,18 @@ export async function getPostAuthRedirect() {
 
   if (!user) return "/login";
 
-  const { data: profile } = await supabase.from("profiles").select("id").eq("id", user.id).maybeSingle();
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("id, company_id, status, role")
+    .eq("id", user.id)
+    .maybeSingle();
 
-  return profile ? "/dashboard" : "/account";
+  // The handle_new_user trigger always creates a row, so a missing profile is
+  // an edge case (e.g. trigger not yet run) -> let onboarding sort it out.
+  if (!profile) return "/onboarding";
+
+  // No org yet, or joined but not approved -> onboarding handles both states.
+  if (!profile.company_id || profile.status !== "active") return "/onboarding";
+
+  return ["super_admin", "admin"].includes(profile.role) ? "/admin" : "/dashboard";
 }

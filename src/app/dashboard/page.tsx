@@ -53,8 +53,9 @@ export default function EmployeeDashboardPage() {
     }
     setProfile(me);
 
-    if (!me.company_id) {
-      setLoading(false);
+    // No org, or joined but not yet approved -> onboarding owns those states.
+    if (!me.company_id || me.status !== "active") {
+      router.replace("/onboarding");
       return;
     }
 

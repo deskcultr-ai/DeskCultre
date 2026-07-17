@@ -69,7 +69,15 @@ export default function AdminDashboardPage() {
       return;
     }
     setProfile(me);
-    if (!isAdmin(me) || !me.company_id) {
+
+    // No org / not approved yet -> onboarding owns those states.
+    if (!me.company_id || me.status !== "active") {
+      router.replace("/onboarding");
+      return;
+    }
+
+    // Employees must not reach the admin panel.
+    if (!isAdmin(me)) {
       setDenied(true);
       setLoading(false);
       return;

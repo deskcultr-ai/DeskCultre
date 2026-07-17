@@ -61,11 +61,13 @@ export default function AuthPanel({ initialMode = "login" }: AuthPanelProps) {
 
     setGoogleBusy(true);
 
-    const next = mode === "register" ? "/account" : "/dashboard";
+    // No ?next=: the callback resolves the destination from the profile via
+    // getPostAuthRedirect() (-> /onboarding, /admin or /dashboard). Hard-coding
+    // /account here is what sent Google sign-ups to the legacy account page.
     const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
+        redirectTo: `${window.location.origin}/auth/callback`,
       },
     });
 
@@ -113,7 +115,7 @@ export default function AuthPanel({ initialMode = "login" }: AuthPanelProps) {
       email: email.trim(),
       password,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent("/account")}`,
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
         data: {
           registration_type: "workspace_join_request",
           first_name: firstName.trim(),

@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { getPostAuthRedirect } from "@/lib/auth-redirect";
 import LandingVisual from "@/components/landing-visual";
 
 type Feature = { label: string; description: string; accent: string; icon: React.ReactNode };
@@ -145,12 +146,9 @@ export default function HomePage() {
     async function check() {
       const { data } = await supabase.auth.getSession();
       if (!data.session) return;
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("id")
-        .eq("id", data.session.user.id)
-        .maybeSingle();
-      router.replace(profile ? "/dashboard" : "/account");
+      // Single source of truth for where a signed-in user belongs:
+      // /onboarding (no org / not approved), /admin (admins) or /dashboard.
+      router.replace(await getPostAuthRedirect());
     }
     check();
   }, [router]);

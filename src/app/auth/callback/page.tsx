@@ -31,17 +31,12 @@ function AuthCallbackContent() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    async function finishAuth() {
-      const code = searchParams.get("code");
-      const next = searchParams.get("next");
+    let finished = false;
+    let unmounted = false;
 
-      if (code) {
-        const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-        if (exchangeError) {
-          setError(exchangeError.message);
-          return;
-        }
-      }
+    async function finish() {
+      if (finished || unmounted) return;
+      finished = true;
 
       const pendingRegistration = readPendingRegistration();
       if (pendingRegistration) {
@@ -59,11 +54,71 @@ function AuthCallbackContent() {
         window.localStorage.removeItem("deskCulture.pendingRegistration");
       }
 
-      const redirectTo = await getPostAuthRedirect();
-      router.replace(next === "/account" && redirectTo !== "/dashboard" ? "/account" : redirectTo);
+      // getPostAuthRedirect() is the single source of truth: it resolves to
+      // /onboarding, /admin or /dashboard from the profile's org + role. Only
+      // honour ?next= when it's a real destination (e.g. password reset).
+      const next = searchParams.get("next");
+      const redirectTo = next === "/account" ? "/account" : await getPostAuthRedirect();
+      router.replace(redirectTo);
     }
 
-    finishAuth();
+    // The provider can bounce back with a failure (consent denied, bad config…).
+    const providerError = searchParams.get("error_description") ?? searchParams.get("error");
+    if (providerError) {
+      setError(providerError);
+      return;
+    }
+
+    // Do NOT call exchangeCodeForSession() here. The client sets
+    // detectSessionInUrl, so supabase-js already exchanges the ?code= itself on
+    // init and then deletes the PKCE code verifier from storage. Exchanging a
+    // second time races that and fails with "PKCE code verifier not found in
+    // storage". Just wait for the session the automatic exchange establishes.
+    const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) finish();
+    });
+
+    // Covers the case where the exchange already completed before we subscribed.
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session) finish();
+    });
+
+    // If the automatic exchange hasn't produced a session, work out *why* rather
+    // than just timing out. The usual cause is an origin mismatch: the PKCE code
+    // verifier is written to localStorage on the origin where sign-in started, so
+    // if Supabase redirects somewhere else (localhost vs 127.0.0.1, or a
+    // different deployment) the verifier simply isn't here.
+    const timer = setTimeout(() => {
+      if (finished || unmounted) return;
+
+      const hasCode = !!searchParams.get("code");
+      if (!hasCode) {
+        setError("No sign-in code was returned. Start the sign-in again from the login page.");
+        return;
+      }
+
+      const ref = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").match(/https:\/\/([^.]+)\./)?.[1];
+      const verifierKey = ref ? `sb-${ref}-auth-token-code-verifier` : null;
+      const hasVerifier = verifierKey ? window.localStorage.getItem(verifierKey) !== null : false;
+
+      if (!hasVerifier) {
+        setError(
+          `Sign-in could not be completed on this address (${window.location.origin}). The security code ` +
+            `is stored by the page that started the sign-in, and it isn't present here — so the sign-in began ` +
+            `on a different address. In Supabase, set Site URL and Redirect URLs to exactly ${window.location.origin}, ` +
+            `then start again from that same address.`
+        );
+        return;
+      }
+
+      setError("Timed out while finishing sign in. Please try again.");
+    }, 8000);
+
+    return () => {
+      unmounted = true;
+      clearTimeout(timer);
+      subscription.subscription.unsubscribe();
+    };
   }, [router, searchParams]);
 
   return (

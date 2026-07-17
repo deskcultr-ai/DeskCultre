@@ -61,9 +61,6 @@ export default function AuthPanel({ initialMode = "login" }: AuthPanelProps) {
 
     setGoogleBusy(true);
 
-    // No ?next=: the callback resolves the destination from the profile via
-    // getPostAuthRedirect() (-> /onboarding, /admin or /dashboard). Hard-coding
-    // /account here is what sent Google sign-ups to the legacy account page.
     const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {

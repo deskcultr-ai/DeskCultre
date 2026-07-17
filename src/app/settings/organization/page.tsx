@@ -6,7 +6,7 @@ import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
 type Profile = { id: string; company_id: string; role: string | null; can_manage_organization: boolean };
-type Company = { id: string; name: string; slug: string | null };
+type Company = { id: string; name: string; slug: string | null; join_code: string | null };
 type Item = { id: string; name: string };
 type Team = Item & { department_id: string | null; description: string | null };
 
@@ -23,6 +23,7 @@ export default function OrganizationSettingsPage() {
   const [tags, setTags] = useState<Item[]>([]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [joinCopied, setJoinCopied] = useState(false);
   const [companyName, setCompanyName] = useState("");
   const [companySlug, setCompanySlug] = useState("");
   const [brandName, setBrandName] = useState("");
@@ -40,7 +41,7 @@ export default function OrganizationSettingsPage() {
     if (!profileData) { setLoading(false); return; }
     setProfile(profileData);
     const [companyResult, brandsResult, channelsResult, departmentsResult, teamsResult, tagsResult] = await Promise.all([
-      supabase.from("companies").select("id, name, slug").eq("id", profileData.company_id).single(),
+      supabase.from("companies").select("id, name, slug, join_code").eq("id", profileData.company_id).single(),
       supabase.from("brands").select("id, name").order("name"),
       supabase.from("channels").select("id, name").eq("company_id", profileData.company_id).eq("is_active", true).order("name"),
       supabase.from("departments").select("id, name").eq("company_id", profileData.company_id).order("name"),
@@ -83,8 +84,39 @@ export default function OrganizationSettingsPage() {
   if (!user || !profile || !company) return <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-white"><section className="rounded-3xl border border-white/10 bg-white/10 p-8 text-center"><h1 className="text-2xl font-bold">Organization setup unavailable</h1><Link href="/dashboard" className="mt-6 inline-block text-cyan-300">Back to Dashboard</Link></section></main>;
   if (!canManage) return <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-white"><section className="max-w-md rounded-3xl border border-white/10 bg-white/10 p-8 text-center"><h1 className="text-2xl font-bold">Organization permission required</h1><p className="mt-3 text-slate-300">Only admins and authorized managers can change organization settings.</p><Link href="/dashboard" className="mt-6 inline-block text-cyan-300">Back to Dashboard</Link></section></main>;
 
-  return <main className="min-h-screen bg-slate-950 px-6 py-8 text-white"><section className="mx-auto max-w-5xl"><header className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-6"><div><p className="text-sm font-semibold text-cyan-300">FlowDesk</p><h1 className="mt-1 text-3xl font-bold">Organization Settings</h1><p className="mt-2 text-slate-400">Manage the workspace structure used to classify tasks.</p></div><Link href="/dashboard" className="rounded-xl border border-white/20 px-5 py-2 text-sm font-semibold">Dashboard</Link></header>
+  return <main className="min-h-screen bg-slate-950 px-6 py-8 text-white"><section className="mx-auto max-w-5xl"><header className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-6"><div><p className="text-sm font-semibold text-cyan-300">DeskCulture</p><h1 className="mt-1 text-3xl font-bold">Organization Settings</h1><p className="mt-2 text-slate-400">Manage the workspace structure used to classify tasks.</p></div><Link href="/admin" className="rounded-xl border border-white/20 px-5 py-2 text-sm font-semibold">Back to Admin</Link></header>
     {error && <p className="mt-6 rounded-xl border border-red-400/30 bg-red-400/10 p-4 text-sm text-red-200">{error}</p>}
+
+    {/* Workspace Join Code — share with employees/managers to onboard them */}
+    {company.join_code && (
+      <section className="mt-8 rounded-2xl border border-indigo-500/30 bg-indigo-500/10 p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-semibold text-indigo-300">Workspace Join Code</h2>
+            <p className="mt-1 text-sm text-slate-400">Share this code with employees, managers, or guests so they can join your workspace during onboarding.</p>
+          </div>
+          <span className="rounded-full bg-indigo-500/20 px-3 py-1 text-xs font-bold text-indigo-300 border border-indigo-500/30">Admin only</span>
+        </div>
+        <div className="mt-4 flex items-center gap-3">
+          <div className="flex-1 rounded-xl border border-indigo-500/30 bg-slate-900 px-5 py-3 font-mono text-2xl font-bold tracking-[0.3em] text-white select-all">
+            {company.join_code}
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              navigator.clipboard.writeText(company.join_code ?? "");
+              setJoinCopied(true);
+              setTimeout(() => setJoinCopied(false), 2000);
+            }}
+            className="shrink-0 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-indigo-500"
+          >
+            {joinCopied ? "Copied!" : "Copy"}
+          </button>
+        </div>
+        <p className="mt-3 text-xs text-slate-500">When a new user registers or signs in with Google and reaches the onboarding screen, they paste this code under <strong className="text-slate-400">"Join Existing Workspace"</strong> and choose their role.</p>
+      </section>
+    )}
+
     <div className="mt-8 grid gap-6 lg:grid-cols-2">
       <section className="rounded-2xl border border-white/10 bg-white/5 p-6"><h2 className="text-xl font-semibold">Company</h2><form onSubmit={saveCompany} className="mt-4 space-y-4"><label className="block text-sm text-slate-300">Name<input value={companyName} onChange={(e) => setCompanyName(e.target.value)} required className={inputClass} /></label><label className="block text-sm text-slate-300">Slug<input value={companySlug} onChange={(e) => setCompanySlug(e.target.value)} placeholder="belle-lingeries" className={inputClass} /></label><button disabled={saving} className="rounded-xl bg-cyan-400 px-5 py-2 font-semibold text-slate-950 disabled:opacity-60">Save Company</button></form></section>
       <section className="rounded-2xl border border-white/10 bg-white/5 p-6"><h2 className="text-xl font-semibold">Brands</h2><p className="mt-1 text-sm text-slate-400">Brands can be linked to more than one company.</p><form onSubmit={addBrand} className="mt-4 flex gap-3"><input value={brandName} onChange={(e) => setBrandName(e.target.value)} required placeholder="Add or link a brand" className="min-w-0 flex-1 rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-white"/><button disabled={saving} className="rounded-xl border border-white/20 px-4 text-sm font-semibold disabled:opacity-60">Add</button></form><ItemList items={brands} empty="No brands linked yet." /></section>

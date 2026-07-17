@@ -77,56 +77,20 @@ export default function OnboardingPage() {
     setBusy(true);
     setError("");
 
-    // Step 1: Look up the company by join_code
-    const { data: company, error: lookupError } = await supabase
-      .from("companies")
-      .select("id")
-      .eq("join_code", inviteCode.trim().toUpperCase())
-      .single();
-
-    if (lookupError || !company) {
-      setBusy(false);
-      setError("That join code is not valid. Please check and try again.");
-      return;
-    }
-
-    // Step 2: Use the request_workspace_access RPC to register intent,
-    // then immediately set profile to the chosen role and active status.
-    const { error: updateError } = await supabase.rpc("request_workspace_access", {
-      request_first_name: profile?.first_name ?? profile?.full_name?.split(" ")[0] ?? "User",
-      request_last_name: profile?.full_name?.split(" ").slice(1).join(" ") ?? "Account",
-      request_phone_number: "+919876543210",
+    // Use join_company_for_testing RPC — looks up company by join_code,
+    // assigns the chosen role, and sets status = 'active' immediately.
+    const { error: rpcError } = await supabase.rpc("join_company_for_testing", {
+      code: inviteCode.trim().toUpperCase(),
+      target_role: testingRole,
     });
 
-    // If request_workspace_access fails (e.g. already requested), we continue anyway.
-    // The key is the privileged profile update below.
-    const { error: profileError } = await supabase
-      .from("profiles")
-      .update({
-        company_id: company.id,
-        role: testingRole as "admin" | "manager" | "member" | "guest",
-        status: "active",
-      })
-      .eq("id", profile?.id);
-
     setBusy(false);
-
-    if (profileError) {
-      // The guard_profile_privileges trigger may block direct role writes.
-      // Inform the user to apply the migration SQL in Supabase.
-      setError(
-        `Could not assign role directly: ${profileError.message}. ` +
-        `Please run the migration SQL from supabase/migrations/20260717000008_testing_onboarding.sql ` +
-        `in your Supabase SQL Editor to enable the join_company_for_testing function.`
-      );
+    if (rpcError) {
+      setError(rpcError.message);
       return;
     }
 
-    if (testingRole === "admin") {
-      router.replace("/admin");
-    } else {
-      router.replace("/dashboard");
-    }
+    router.replace(testingRole === "admin" ? "/admin" : "/dashboard");
   }
 
   if (loading) {

@@ -130,9 +130,14 @@ export default function AuthPanel({ initialMode = "login" }: AuthPanelProps) {
 
     setMessage(
       data.user && !data.session
-        ? "Check your email to verify your account. An admin will review your registration after verification."
-        : "Your registration request is pending admin approval."
+        ? "✉️ Check your inbox! We sent you an activation link. Click it to verify your account — you'll then be taken to the workspace setup screen where you can create or join an organization."
+        : "Your account is active. Redirecting to workspace setup..."
     );
+
+    // If user is immediately active (e.g. email confirmation disabled), redirect now.
+    if (data.session) {
+      router.replace(await getPostAuthRedirect());
+    }
   }
 
   return (

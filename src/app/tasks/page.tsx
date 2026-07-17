@@ -15,7 +15,7 @@ type Task = {
   status: string;
   priority: string;
   assignee_id: string | null;
-  workspace_id: string | null;
+  department_id: string | null;
   due_date: string | null;
   created_at: string;
 };
@@ -29,7 +29,6 @@ type Request = {
   to_department_id: string | null;
 };
 type Person = { id: string; name: string; avatar_url: string | null };
-type Workspace = { id: string; name: string };
 type Department = { id: string; name: string };
 type ChecklistItem = { id: string; label: string; is_done: boolean };
 type Comment = { id: string; body: string; created_at: string; author_id: string | null };
@@ -72,10 +71,9 @@ export default function TasksAndRequestsPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [requests, setRequests] = useState<Request[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
 
-  const [wsFilter, setWsFilter] = useState("");
+  const [deptFilter, setDeptFilter] = useState("");
   const [assigneeFilter, setAssigneeFilter] = useState("");
 
   const [selected, setSelected] = useState<Task | null>(null);
@@ -95,7 +93,7 @@ export default function TasksAndRequestsPage() {
     status: "todo",
     priority: "medium",
     assignee_id: "",
-    workspace_id: "",
+    department_id: "",
     due_date: "",
   });
   const [reqForm, setReqForm] = useState({ title: "", description: "", priority: "medium", to_department_id: "", due_date: "" });
@@ -112,10 +110,10 @@ export default function TasksAndRequestsPage() {
     }
     setProfile(me);
 
-    const [tasksRes, reqRes, peopleRes, wsRes, deptRes] = await Promise.all([
+    const [tasksRes, reqRes, peopleRes, deptRes] = await Promise.all([
       supabase
         .from("tasks")
-        .select("id, title, description, status, priority, assignee_id, workspace_id, due_date, created_at")
+        .select("id, title, description, status, priority, assignee_id, department_id, due_date, created_at")
         .eq("company_id", me.company_id)
         .order("created_at", { ascending: false }),
       supabase
@@ -128,7 +126,6 @@ export default function TasksAndRequestsPage() {
         .select("id, full_name, first_name, email, avatar_url")
         .eq("company_id", me.company_id)
         .eq("status", "active"),
-      supabase.from("workspaces").select("id, name").eq("company_id", me.company_id).order("name"),
       supabase.from("departments").select("id, name").eq("company_id", me.company_id).order("name"),
     ]);
 
@@ -141,7 +138,6 @@ export default function TasksAndRequestsPage() {
         avatar_url: p.avatar_url,
       }))
     );
-    setWorkspaces(wsRes.data ?? []);
     setDepartments(deptRes.data ?? []);
     setLoading(false);
   }, [router]);
@@ -163,12 +159,11 @@ export default function TasksAndRequestsPage() {
   }, []);
 
   const peopleById = useMemo(() => new Map(people.map((p) => [p.id, p])), [people]);
-  const wsById = useMemo(() => new Map(workspaces.map((w) => [w.id, w])), [workspaces]);
   const deptById = useMemo(() => new Map(departments.map((d) => [d.id, d])), [departments]);
 
   const visible = useMemo(
-    () => tasks.filter((t) => (!wsFilter || t.workspace_id === wsFilter) && (!assigneeFilter || t.assignee_id === assigneeFilter)),
-    [tasks, wsFilter, assigneeFilter]
+    () => tasks.filter((t) => (!deptFilter || t.department_id === deptFilter) && (!assigneeFilter || t.assignee_id === assigneeFilter)),
+    [tasks, deptFilter, assigneeFilter]
   );
 
   async function createTask(event: React.FormEvent) {
@@ -183,7 +178,7 @@ export default function TasksAndRequestsPage() {
       status: form.status,
       priority: form.priority,
       assignee_id: form.assignee_id || null,
-      workspace_id: form.workspace_id || null,
+      department_id: form.department_id || null,
       due_date: form.due_date || null,
       created_by: profile.id,
     });
@@ -193,7 +188,7 @@ export default function TasksAndRequestsPage() {
       return;
     }
     setTaskOpen(false);
-    setForm({ title: "", description: "", status: "todo", priority: "medium", assignee_id: "", workspace_id: "", due_date: "" });
+    setForm({ title: "", description: "", status: "todo", priority: "medium", assignee_id: "", department_id: "", due_date: "" });
     load();
   }
 
@@ -299,9 +294,9 @@ export default function TasksAndRequestsPage() {
 
           {tab === "tasks" && (
             <div className="flex flex-wrap items-center gap-3">
-              <Select className="h-9 w-44" value={wsFilter} onChange={(e) => setWsFilter(e.target.value)}>
-                <option value="">All Workspaces</option>
-                {workspaces.map((w) => (
+              <Select className="h-9 w-44" value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)}>
+                <option value="">All Departments</option>
+                {departments.map((w) => (
                   <option key={w.id} value={w.id}>
                     {w.name}
                   </option>
@@ -371,10 +366,10 @@ export default function TasksAndRequestsPage() {
                             <p className={cn("text-sm font-semibold text-slate-900", t.status === "completed" && "text-slate-400 line-through")}>
                               {t.title}
                             </p>
-                            {t.workspace_id && wsById.get(t.workspace_id) && (
+                            {t.department_id && deptById.get(t.department_id) && (
                               <p className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-500">
                                 <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                                {wsById.get(t.workspace_id)!.name}
+                                {deptById.get(t.department_id)!.name}
                               </p>
                             )}
                             <div className="mt-3 flex items-center justify-between gap-2">
@@ -556,7 +551,7 @@ export default function TasksAndRequestsPage() {
             {selected.description && <p className="text-sm leading-6 text-slate-600">{selected.description}</p>}
 
             <dl className="space-y-3 border-t border-slate-100 pt-4 text-sm">
-              <Row label="Workspace">{selected.workspace_id ? wsById.get(selected.workspace_id)?.name ?? "—" : "—"}</Row>
+              <Row label="Department">{selected.department_id ? deptById.get(selected.department_id)?.name ?? "—" : "—"}</Row>
               <Row label="Assignee">
                 <Select
                   className="h-8 w-40 text-xs"
@@ -698,10 +693,10 @@ export default function TasksAndRequestsPage() {
                 ))}
               </Select>
             </Field>
-            <Field label="Workspace">
-              <Select value={form.workspace_id} onChange={(e) => setForm({ ...form, workspace_id: e.target.value })}>
+            <Field label="Department">
+              <Select value={form.department_id} onChange={(e) => setForm({ ...form, department_id: e.target.value })}>
                 <option value="">None</option>
-                {workspaces.map((w) => (
+                {departments.map((w) => (
                   <option key={w.id} value={w.id}>
                     {w.name}
                   </option>

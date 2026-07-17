@@ -21,7 +21,6 @@ type StatusCount = { status: string; count: number };
 type DeptRow = { id: string; name: string; workload: string; total: number; done: number };
 type ActivityRow = { id: string; summary: string | null; action: string; created_at: string };
 type MeetingRow = { id: string; title: string; starts_at: string };
-type WorkspaceRow = { id: string; name: string; total: number };
 
 const TASK_TONES: Record<string, string> = {
   completed: "bg-success",
@@ -60,7 +59,6 @@ export default function AdminDashboardPage() {
   const [departments, setDepartments] = useState<DeptRow[]>([]);
   const [activity, setActivity] = useState<ActivityRow[]>([]);
   const [meetings, setMeetings] = useState<MeetingRow[]>([]);
-  const [workspaces, setWorkspaces] = useState<WorkspaceRow[]>([]);
 
   const load = useCallback(async () => {
     const me = await getProfile();
@@ -102,11 +100,10 @@ export default function AdminDashboardPage() {
       attendanceRes,
       activityRes,
       upcomingRes,
-      workspacesRes,
     ] = await Promise.all([
       supabase.from("profiles").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "active"),
       supabase.from("departments").select("id, name, workload").eq("company_id", companyId),
-      supabase.from("tasks").select("id, status, department_id, workspace_id").eq("company_id", companyId),
+      supabase.from("tasks").select("id, status, department_id").eq("company_id", companyId),
       supabase.from("requests").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "pending"),
       supabase.from("profiles").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "pending"),
       supabase.from("leave_requests").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "pending"),
@@ -116,7 +113,6 @@ export default function AdminDashboardPage() {
       supabase.from("attendance_sessions").select("status").eq("company_id", companyId).eq("work_date", workDate),
       supabase.from("activity_log").select("id, summary, action, created_at").eq("company_id", companyId).order("created_at", { ascending: false }).limit(6),
       supabase.from("meetings").select("id, title, starts_at").eq("company_id", companyId).gte("starts_at", new Date().toISOString()).order("starts_at").limit(4),
-      supabase.from("workspaces").select("id, name").eq("company_id", companyId).eq("is_active", true).limit(5),
     ]);
 
     const tasks = tasksRes.data ?? [];
@@ -153,13 +149,6 @@ export default function AdminDashboardPage() {
       })
     );
 
-    setWorkspaces(
-      (workspacesRes.data ?? []).map((w) => ({
-        id: w.id,
-        name: w.name,
-        total: tasks.filter((t) => t.workspace_id === w.id).length,
-      })).sort((a, b) => b.total - a.total)
-    );
 
     setActivity(activityRes.data ?? []);
     setMeetings(upcomingRes.data ?? []);
@@ -337,25 +326,28 @@ export default function AdminDashboardPage() {
           )}
         </Card>
 
-        {/* Workspaces */}
+        {/* Busiest departments (workspaces were removed; departments are the org structure) */}
         <Card>
-          <h3 className="text-h4 text-slate-900">Top Active Workspaces</h3>
-          {workspaces.length === 0 ? (
-            <Empty message="No workspaces yet." />
+          <h3 className="text-h4 text-slate-900">Busiest Departments</h3>
+          {departments.length === 0 ? (
+            <Empty message="No departments yet." />
           ) : (
             <div className="mt-5 space-y-4">
-              {workspaces.map((w) => {
-                const max = Math.max(...workspaces.map((x) => x.total), 1);
-                return (
-                  <div key={w.id}>
-                    <div className="mb-1.5 flex items-center justify-between text-sm">
-                      <span className="font-medium text-slate-700">{w.name}</span>
-                      <span className="text-xs text-slate-400">{w.total} tasks</span>
+              {[...departments]
+                .sort((a, b) => b.total - a.total)
+                .slice(0, 5)
+                .map((d) => {
+                  const max = Math.max(...departments.map((x) => x.total), 1);
+                  return (
+                    <div key={d.id}>
+                      <div className="mb-1.5 flex items-center justify-between text-sm">
+                        <span className="font-medium text-slate-700">{d.name}</span>
+                        <span className="text-xs text-slate-400">{d.total} tasks</span>
+                      </div>
+                      <ProgressBar value={Math.round((d.total / max) * 100)} />
                     </div>
-                    <ProgressBar value={Math.round((w.total / max) * 100)} />
-                  </div>
-                );
-              })}
+                  );
+                })}
             </div>
           )}
         </Card>

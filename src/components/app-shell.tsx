@@ -40,10 +40,8 @@ const employeeNav: NavGroup[] = [
   {
     items: [
       { label: "Dashboard", href: "/dashboard", icon: icon(ICONS.home) },
+      { label: "Tasks & Requests", href: "/tasks", icon: icon(ICONS.check) },
       { label: "Chat", icon: icon(ICONS.chat) },
-      { label: "Workspaces", href: "/workspaces", icon: icon(ICONS.grid) },
-      { label: "Tasks", href: "/tasks", icon: icon(ICONS.check) },
-      { label: "Requests", href: "/tasks", icon: icon(ICONS.inbox) },
       { label: "Meetings", icon: icon(ICONS.video) },
       { label: "Calendar", icon: icon(ICONS.calendar) },
       { label: "Drive", icon: icon(ICONS.folder) },
@@ -55,7 +53,7 @@ const employeeNav: NavGroup[] = [
     items: [
       { label: "Attendance", href: "/attendance", icon: icon(ICONS.clock) },
       { label: "Profile", href: "/profile", icon: icon(ICONS.users) },
-      { label: "Settings", icon: icon(ICONS.gear) },
+      { label: "Account", href: "/account", icon: icon(ICONS.gear) },
     ],
   },
 ];
@@ -66,16 +64,14 @@ const adminNav: NavGroup[] = [
     heading: "Manage",
     items: [
       { label: "Users & Teams", href: "/admin/users", icon: icon(ICONS.users) },
-      { label: "Departments", href: "/admin/users", icon: icon(ICONS.building) },
-      { label: "Roles & Permissions", href: "/admin/users", icon: icon(ICONS.shield) },
-      { label: "Workspaces", href: "/workspaces", icon: icon(ICONS.grid) },
+      { label: "Departments", href: "/admin/departments", icon: icon(ICONS.building) },
+      { label: "Roles & Permissions", href: "/admin/roles", icon: icon(ICONS.shield) },
     ],
   },
   {
     heading: "Workplace",
     items: [
-      { label: "Tasks", href: "/tasks", icon: icon(ICONS.check) },
-      { label: "Requests", href: "/tasks", icon: icon(ICONS.inbox) },
+      { label: "Tasks & Requests", href: "/tasks", icon: icon(ICONS.check) },
       { label: "Meetings", icon: icon(ICONS.video) },
       { label: "Announcements", icon: icon(ICONS.chat) },
     ],

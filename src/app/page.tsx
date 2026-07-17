@@ -186,6 +186,12 @@ export default function HomePage() {
         </nav>
 
         <div className="flex items-center gap-3">
+          <Link
+            href="/login"
+            className="hidden text-sm font-medium text-slate-800 transition hover:text-indigo-600 sm:inline"
+          >
+            Log In
+          </Link>
           {signedIn ? (
             <Link
               href={appHref}
@@ -194,20 +200,12 @@ export default function HomePage() {
               Go to workspace
             </Link>
           ) : (
-            <>
-              <Link
-                href="/login"
-                className="hidden text-sm font-medium text-slate-800 transition hover:text-indigo-600 sm:inline"
-              >
-                Log In
-              </Link>
-              <Link
-                href="/register"
-                className="inline-flex h-10 items-center justify-center rounded-full bg-gradient-to-r from-[#6f51f5] to-[#7f50f0] px-6 text-sm font-bold text-white shadow-[0_16px_40px_rgba(99,70,230,0.35)] transition hover:-translate-y-0.5"
-              >
-                Sign Up
-              </Link>
-            </>
+            <Link
+              href="/register"
+              className="inline-flex h-10 items-center justify-center rounded-full bg-gradient-to-r from-[#6f51f5] to-[#7f50f0] px-6 text-sm font-bold text-white shadow-[0_16px_40px_rgba(99,70,230,0.35)] transition hover:-translate-y-0.5"
+            >
+              Sign Up
+            </Link>
           )}
         </div>
       </header>

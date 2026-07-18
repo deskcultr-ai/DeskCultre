@@ -10,6 +10,15 @@ import { supabase } from "@/lib/supabase";
 
 type Period = "today" | "week" | "month";
 type ApprovalKind = "request" | "leave" | "access";
+type DateRange = { start: string; end: string };
+type AttendanceState = {
+  id: string | null;
+  workDate: string;
+  checkInAt: string | null;
+  checkOutAt: string | null;
+  isCheckedIn: boolean;
+  elapsedSeconds: number;
+};
 
 type DashboardData = {
   stats: {
@@ -110,6 +119,38 @@ function timeAgo(value: string) {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
+function formatDuration(totalSeconds: number) {
+  const seconds = Math.max(0, Math.floor(totalSeconds));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+}
+
+function dateKey(date: Date) {
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function parseDateKey(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, (month ?? 1) - 1, day ?? 1);
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function formatRangeLabel(range: DateRange | null, fallback: string) {
+  if (!range) return fallback;
+  const formatter = new Intl.DateTimeFormat(undefined, { day: "2-digit", month: "short", year: "numeric" });
+  if (range.start === range.end) return formatter.format(parseDateKey(range.start));
+  return `${formatter.format(parseDateKey(range.start))} - ${formatter.format(parseDateKey(range.end))}`;
+}
+
 function buildActivityPath(items: DashboardData["organizationActivity"]) {
   const safe = items.length > 0 ? items : Array.from({ length: 7 }, (_, index) => ({ date: "", label: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][index], count: 0 }));
   const max = Math.max(1, ...safe.map((item) => item.count));
@@ -178,14 +219,194 @@ function EmptyState({ message }: { message: string }) {
   return <div className="rounded-lg border border-dashed border-[#dfe5f2] bg-[#fbfcff] px-4 py-6 text-center text-sm font-semibold text-[#7180a6]">{message}</div>;
 }
 
+function AttendanceControl({
+  attendance,
+  now,
+  busy,
+  onCheckIn,
+  onCheckOut,
+}: {
+  attendance: AttendanceState | null;
+  now: number;
+  busy: boolean;
+  onCheckIn: () => void;
+  onCheckOut: () => void;
+}) {
+  const currentTime = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(now));
+  const elapsed =
+    attendance?.isCheckedIn && attendance.checkInAt
+      ? Math.max(0, Math.floor((now - new Date(attendance.checkInAt).getTime()) / 1000))
+      : attendance?.elapsedSeconds ?? 0;
+  const buttonLabel = attendance?.isCheckedIn ? "Check Out" : attendance?.checkOutAt ? "Checked Out" : "Check In";
+
+  return (
+    <div className="flex min-h-12 flex-wrap items-center gap-3 rounded-lg border border-white/80 bg-white/80 px-3 py-2 shadow-ds-sm sm:px-4">
+      <span className={`grid h-9 w-9 place-items-center rounded-lg ${attendance?.isCheckedIn ? "bg-[#e5f8ee] text-[#0f9f6e]" : "bg-[#ece8ff] text-[#4f46e5]"}`}>
+        {icon(icons.clock, "h-4 w-4")}
+      </span>
+      <div className="min-w-[116px]">
+        <p className="text-[11px] font-black uppercase text-[#7180a6]">{attendance?.isCheckedIn ? "Working now" : "Today"}</p>
+        <p className="font-mono text-sm font-black text-[#071035]">{currentTime}</p>
+      </div>
+      <div className="min-w-[94px] rounded-md bg-[#f6f8ff] px-3 py-2 text-center">
+        <p className="text-[10px] font-black uppercase text-[#7180a6]">Timer</p>
+        <p className="font-mono text-xs font-black text-[#4f46e5]">{formatDuration(elapsed)}</p>
+      </div>
+      <button
+        onClick={attendance?.isCheckedIn ? onCheckOut : onCheckIn}
+        disabled={busy || !!attendance?.checkOutAt}
+        className="h-9 rounded-lg bg-[#4f46e5] px-4 text-xs font-black text-white shadow-[0_10px_20px_rgba(79,70,229,0.22)] transition hover:bg-[#4338ca] disabled:cursor-not-allowed disabled:bg-[#a7a1f4]"
+      >
+        {busy ? "Saving..." : buttonLabel}
+      </button>
+    </div>
+  );
+}
+
+function CalendarRangeModal({
+  open,
+  value,
+  onApply,
+  onClose,
+}: {
+  open: boolean;
+  value: DateRange | null;
+  onApply: (range: DateRange | null) => void;
+  onClose: () => void;
+}) {
+  const [viewDate, setViewDate] = useState(() => (value ? parseDateKey(value.start) : new Date()));
+  const [start, setStart] = useState(value?.start ?? dateKey(new Date()));
+  const [end, setEnd] = useState(value?.end ?? dateKey(new Date()));
+
+  useEffect(() => {
+    if (!open) return;
+    setViewDate(value ? parseDateKey(value.start) : new Date());
+    setStart(value?.start ?? dateKey(new Date()));
+    setEnd(value?.end ?? value?.start ?? dateKey(new Date()));
+  }, [open, value]);
+
+  if (!open) return null;
+
+  const monthStart = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1);
+  const gridStart = addDays(monthStart, -monthStart.getDay());
+  const days = Array.from({ length: 42 }, (_, index) => addDays(gridStart, index));
+  const monthNames = Array.from({ length: 12 }, (_, index) => new Intl.DateTimeFormat(undefined, { month: "long" }).format(new Date(2026, index, 1)));
+  const startTime = parseDateKey(start).getTime();
+  const endTime = parseDateKey(end).getTime();
+
+  function selectDay(day: Date) {
+    const key = dateKey(day);
+    if (!start || (start && end && start !== end)) {
+      setStart(key);
+      setEnd(key);
+      return;
+    }
+    if (parseDateKey(key).getTime() < parseDateKey(start).getTime()) {
+      setEnd(start);
+      setStart(key);
+    } else {
+      setEnd(key);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-[#071035]/35 p-4 backdrop-blur-sm" role="dialog" aria-modal="true">
+      <div className="w-full max-w-[520px] rounded-xl border border-[#dfe5f2] bg-white p-5 shadow-[0_30px_80px_rgba(15,23,42,0.25)]">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-black text-[#071035]">Select Date Range</h2>
+            <p className="mt-1 text-sm font-semibold text-[#637091]">Choose month, year, and dates for dashboard data.</p>
+          </div>
+          <button onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg border border-[#dfe4ef] text-[#637091] hover:text-[#071035]" aria-label="Close calendar">
+            x
+          </button>
+        </div>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-[1fr_120px]">
+          <select
+            value={viewDate.getMonth()}
+            onChange={(event) => setViewDate(new Date(viewDate.getFullYear(), Number(event.target.value), 1))}
+            className="h-11 rounded-lg border border-[#dfe4ef] bg-white px-3 text-sm font-bold text-[#24304f]"
+          >
+            {monthNames.map((name, index) => <option key={name} value={index}>{name}</option>)}
+          </select>
+          <input
+            type="number"
+            value={viewDate.getFullYear()}
+            onChange={(event) => setViewDate(new Date(Number(event.target.value), viewDate.getMonth(), 1))}
+            className="h-11 rounded-lg border border-[#dfe4ef] bg-white px-3 text-sm font-bold text-[#24304f]"
+          />
+        </div>
+
+        <div className="mt-4 grid grid-cols-7 gap-1 text-center text-[11px] font-black uppercase text-[#7180a6]">
+          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <span key={day}>{day}</span>)}
+        </div>
+        <div className="mt-2 grid grid-cols-7 gap-1">
+          {days.map((day) => {
+            const key = dateKey(day);
+            const inMonth = day.getMonth() === viewDate.getMonth();
+            const time = day.getTime();
+            const selected = key === start || key === end;
+            const inRange = time >= Math.min(startTime, endTime) && time <= Math.max(startTime, endTime);
+            return (
+              <button
+                key={key}
+                onClick={() => selectDay(day)}
+                className={`h-10 rounded-lg text-sm font-black transition ${
+                  selected
+                    ? "bg-[#4f46e5] text-white shadow-[0_10px_18px_rgba(79,70,229,0.22)]"
+                    : inRange
+                      ? "bg-[#f0edff] text-[#4f46e5]"
+                      : inMonth
+                        ? "text-[#24304f] hover:bg-[#f6f8ff]"
+                        : "text-[#b4bfd3] hover:bg-[#f8faff]"
+                }`}
+              >
+                {day.getDate()}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          <label className="text-xs font-black uppercase text-[#7180a6]">
+            Start
+            <input type="date" value={start} onChange={(event) => setStart(event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-[#dfe4ef] px-3 text-sm font-bold text-[#24304f]" />
+          </label>
+          <label className="text-xs font-black uppercase text-[#7180a6]">
+            End
+            <input type="date" value={end} onChange={(event) => setEnd(event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-[#dfe4ef] px-3 text-sm font-bold text-[#24304f]" />
+          </label>
+        </div>
+
+        <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <button onClick={() => onApply(null)} className="h-11 rounded-lg border border-[#cfd6e8] px-5 text-sm font-black text-[#4f46e5]">Clear Range</button>
+          <button onClick={onClose} className="h-11 rounded-lg border border-[#dfe4ef] px-5 text-sm font-black text-[#4b587d]">Cancel</button>
+          <button
+            onClick={() => onApply(parseDateKey(start).getTime() <= parseDateKey(end).getTime() ? { start, end } : { start: end, end: start })}
+            className="h-11 rounded-lg bg-[#4f46e5] px-5 text-sm font-black text-white shadow-[0_12px_24px_rgba(79,70,229,0.24)]"
+          >
+            Apply Range
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminDashboardPage() {
   const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [denied, setDenied] = useState(false);
   const [period, setPeriod] = useState<Period>("week");
+  const [dateRange, setDateRange] = useState<DateRange | null>(null);
+  const [calendarOpen, setCalendarOpen] = useState(false);
   const [approvalTab, setApprovalTab] = useState<ApprovalKind>("request");
   const [dashboard, setDashboard] = useState<DashboardData>(emptyDashboard);
+  const [attendance, setAttendance] = useState<AttendanceState | null>(null);
+  const [attendanceBusy, setAttendanceBusy] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
@@ -207,19 +428,30 @@ export default function AdminDashboardPage() {
       return;
     }
 
-    const { data, error: rpcError } = await supabase.rpc("get_admin_dashboard_data", { period });
+    const { data, error: rpcError } = await supabase.rpc("get_admin_dashboard_data_range", {
+      period,
+      range_start_date: dateRange?.start ?? null,
+      range_end_date: dateRange?.end ?? null,
+    });
     if (rpcError) {
       setError(rpcError.message);
       setDashboard(emptyDashboard);
     } else {
       setDashboard({ ...emptyDashboard, ...(data as DashboardData) });
     }
+    const { data: attendanceData } = await supabase.rpc("get_my_attendance_state");
+    if (attendanceData) setAttendance(attendanceData as AttendanceState);
     setLoading(false);
-  }, [period, router]);
+  }, [dateRange, period, router]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     ["/admin/users", "/admin/requests", "/admin/tasks", "/admin/departments", "/admin/meetings"].forEach((href) => {
@@ -231,10 +463,24 @@ export default function AdminDashboardPage() {
   const filteredApprovals = dashboard.pendingApprovals.filter((item) => item.kind === approvalTab);
   const storagePct = dashboard.stats.storageLimit > 0 ? Math.min(100, Math.round((dashboard.stats.storageUsed / dashboard.stats.storageLimit) * 100)) : 0;
   const todayLabel = new Intl.DateTimeFormat(undefined, { weekday: "short", day: "2-digit", month: "short", year: "numeric" }).format(new Date());
+  const rangeLabel = formatRangeLabel(dateRange, todayLabel);
   const taskTrend =
     dashboard.stats.previousTasks > 0
-      ? `${Math.round(((dashboard.stats.currentTasks - dashboard.stats.previousTasks) / dashboard.stats.previousTasks) * 100)}% ${period}`
-      : `${dashboard.stats.currentTasks} new ${period}`;
+      ? `${Math.round(((dashboard.stats.currentTasks - dashboard.stats.previousTasks) / dashboard.stats.previousTasks) * 100)}% ${dateRange ? "range" : period}`
+      : `${dashboard.stats.currentTasks} new ${dateRange ? "range" : period}`;
+
+  async function updateAttendance(action: "check_in" | "check_out") {
+    setAttendanceBusy(true);
+    setError("");
+    const rpcName = action === "check_in" ? "record_attendance_check_in" : "record_attendance_check_out";
+    const { data, error: attendanceError } = await supabase.rpc(rpcName);
+    if (attendanceError) {
+      setError(attendanceError.message);
+    } else if (data) {
+      setAttendance(data as AttendanceState);
+    }
+    setAttendanceBusy(false);
+  }
 
   if (loading) {
     return <main className="grid min-h-screen place-items-center bg-[#f8faff] text-sm font-semibold text-[#637091]">Loading dashboard...</main>;
@@ -262,14 +508,17 @@ export default function AdminDashboardPage() {
               <p className="mt-1 text-sm font-semibold text-[#4b587d]">Here is the complete live overview of your organization.</p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              <div className="inline-flex h-12 items-center gap-3 rounded-lg border border-white/80 bg-white/75 px-4 text-sm font-bold text-[#111936] shadow-ds-sm">
+              <button onClick={() => setCalendarOpen(true)} className="inline-flex min-h-12 items-center gap-3 rounded-lg border border-white/80 bg-white/75 px-4 text-left text-sm font-bold text-[#111936] shadow-ds-sm transition hover:border-[#c8c2ff] hover:bg-white">
                 {icon(icons.calendar, "h-4 w-4 text-[#4f46e5]")}
-                {todayLabel}
-              </div>
-              <div className="inline-flex h-12 items-center gap-3 rounded-lg border border-white/80 bg-white/75 px-4 text-sm font-bold text-[#111936] shadow-ds-sm">
-                {icon(icons.clock, "h-4 w-4 text-[#0f9f6e]")}
-                Live data
-              </div>
+                <span>{rangeLabel}</span>
+              </button>
+              <AttendanceControl
+                attendance={attendance}
+                now={now}
+                busy={attendanceBusy}
+                onCheckIn={() => void updateAttendance("check_in")}
+                onCheckOut={() => void updateAttendance("check_out")}
+              />
             </div>
           </div>
         </section>
@@ -277,8 +526,8 @@ export default function AdminDashboardPage() {
         {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div>}
 
         <section className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-4">
-          <StatCard label="Total Users" value={dashboard.stats.totalUsers} helper={`+${dashboard.stats.newUsers} this ${period}`} tone="violet" iconNode={icon(icons.users)} href="/admin/users" />
-          <StatCard label="Departments" value={dashboard.stats.departments} helper={dashboard.stats.newDepartments ? `+${dashboard.stats.newDepartments} this ${period}` : "No change"} tone="blue" iconNode={icon(icons.building)} href="/admin/departments" />
+          <StatCard label="Total Users" value={dashboard.stats.totalUsers} helper={`+${dashboard.stats.newUsers} this ${dateRange ? "range" : period}`} tone="violet" iconNode={icon(icons.users)} href="/admin/users" />
+          <StatCard label="Departments" value={dashboard.stats.departments} helper={dashboard.stats.newDepartments ? `+${dashboard.stats.newDepartments} this ${dateRange ? "range" : period}` : "No change"} tone="blue" iconNode={icon(icons.building)} href="/admin/departments" />
           <StatCard label="Total Tasks" value={dashboard.stats.totalTasks} helper={taskTrend} tone="green" iconNode={icon(icons.task)} href="/admin/tasks" />
           <StatCard label="Active Projects" value={dashboard.stats.activeProjects} helper={`+${dashboard.stats.newProjects} new`} tone="violet" iconNode={icon(icons.folder)} href="/admin/projects" />
         </section>
@@ -291,8 +540,11 @@ export default function AdminDashboardPage() {
                 {(["today", "week", "month"] as Period[]).map((item) => (
                   <button
                     key={item}
-                    onClick={() => setPeriod(item)}
-                    className={`rounded-md px-3 py-1.5 text-xs font-black capitalize ${period === item ? "bg-[#f0edff] text-primary" : "text-[#637091]"}`}
+                    onClick={() => {
+                      setDateRange(null);
+                      setPeriod(item);
+                    }}
+                    className={`rounded-md px-3 py-1.5 text-xs font-black capitalize ${!dateRange && period === item ? "bg-[#f0edff] text-primary" : "text-[#637091]"}`}
                   >
                     {item}
                   </button>
@@ -539,6 +791,16 @@ export default function AdminDashboardPage() {
             )}
           </div>
         </section>
+
+        <CalendarRangeModal
+          open={calendarOpen}
+          value={dateRange}
+          onClose={() => setCalendarOpen(false)}
+          onApply={(range) => {
+            setDateRange(range);
+            setCalendarOpen(false);
+          }}
+        />
       </div>
     </AppShell>
   );

@@ -40,6 +40,12 @@ type PendingInvite = {
   expiresAt: string;
   createdAt: string;
 };
+type OrgInvite = {
+  companyId: string;
+  name: string;
+  code: string;
+  expiresAt: string;
+};
 type AdminSummary = {
   id: string;
   name: string;
@@ -63,6 +69,7 @@ type UsersData = {
   departments: Department[];
   pendingInvites: PendingInvite[];
   admins: AdminSummary[];
+  orgInvite: OrgInvite | null;
 };
 
 const emptyData: UsersData = {
@@ -71,6 +78,7 @@ const emptyData: UsersData = {
   departments: [],
   pendingInvites: [],
   admins: [],
+  orgInvite: null,
 };
 
 const roleLabels: Record<string, string> = {
@@ -174,7 +182,7 @@ export default function UsersAndTeamsPage() {
   const [inviteBusy, setInviteBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [createdInvite, setCreatedInvite] = useState<{ code: string; link: string } | null>(null);
+  const [createdInvite, setCreatedInvite] = useState<{ code: string; link: string; orgName?: string; expiresAt?: string } | null>(null);
 
   const load = useCallback(async () => {
     setError("");
@@ -259,7 +267,7 @@ export default function UsersAndTeamsPage() {
       setError(result.error ?? "Could not create invite.");
       return;
     }
-    setCreatedInvite({ code: result.invite.code, link: result.invite.link });
+    setCreatedInvite({ code: result.invite.code, link: result.invite.link, orgName: result.invite.orgName, expiresAt: result.invite.expiresAt });
     setNotice(result.emailSent ? "Invite email sent." : result.warning ?? "Invite created. Email provider is not configured yet.");
     setInviteEmail("");
     await load();
@@ -292,6 +300,12 @@ export default function UsersAndTeamsPage() {
     const { error: cancelError } = await supabase.from("admin_user_invites").update({ status: "cancelled" }).eq("id", inviteId);
     if (cancelError) setError(cancelError.message);
     else load();
+  }
+
+  async function copyInviteCode() {
+    if (!data.orgInvite?.code) return;
+    await navigator.clipboard.writeText(data.orgInvite.code);
+    setNotice("Invitation code copied.");
   }
 
   if (loading) {
@@ -335,6 +349,30 @@ export default function UsersAndTeamsPage() {
       <div className="space-y-6">
         {error && <Alert tone="danger">{error}</Alert>}
         {notice && <Alert tone="success" onClose={() => setNotice("")}>{notice}</Alert>}
+
+        <Card className="rounded-lg border-[#d8d1ff] bg-[linear-gradient(135deg,#ffffff_0%,#f7f5ff_100%)] p-5 shadow-[0_16px_36px_rgba(61,53,142,0.08)]">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-[12px] font-black uppercase tracking-wide text-[#5b36f2]">Organization Invitation Code</p>
+              <h2 className="mt-1 text-lg font-black text-[#071035]">{data.orgInvite?.name ?? "Your organization"}</h2>
+              <p className="mt-1 text-sm font-semibold text-[#526184]">
+                Share this 24-hour code with employees after they search your organization name on Join Org.
+              </p>
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="rounded-lg border border-[#ded8ff] bg-white px-4 py-3">
+                <p className="text-[11px] font-black uppercase tracking-wide text-[#7b88a8]">Current code</p>
+                <p className="mt-1 font-mono text-xl font-black tracking-[0.18em] text-[#4f46e5]">{data.orgInvite?.code ?? "Preparing"}</p>
+                {data.orgInvite?.expiresAt && (
+                  <p className="mt-1 text-xs font-bold text-[#526184]">Expires {new Date(data.orgInvite.expiresAt).toLocaleString()}</p>
+                )}
+              </div>
+              <Button type="button" onClick={copyInviteCode} disabled={!data.orgInvite?.code}>
+                Copy Code
+              </Button>
+            </div>
+          </div>
+        </Card>
 
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
           <StatCard active={view === "all"} label="Total Users" value={data.stats.totalUsers} helper={`+${data.stats.newUsers} this week`} tone="bg-[#ece8ff] text-[#4f46e5]" iconNode={icon(icons.users)} onClick={() => setView("all")} />
@@ -409,8 +447,12 @@ export default function UsersAndTeamsPage() {
                       </div>
                       <button onClick={() => cancelInvite(inviteItem.id)} className="text-xs font-black text-[#c22f3d] hover:underline">Cancel</button>
                     </div>
-                    <div className="mt-3 inline-flex rounded-lg border border-[#ded8ff] bg-[#f8f7ff] px-3 py-2 font-mono text-xs font-black tracking-wider text-[#4f46e5]">{inviteItem.code}</div>
-                    <p className="mt-2 text-xs font-semibold text-[#667391]">Expires {new Date(inviteItem.expiresAt).toLocaleDateString()}</p>
+                    <div className="mt-3 inline-flex rounded-lg border border-[#ded8ff] bg-[#f8f7ff] px-3 py-2 font-mono text-xs font-black tracking-wider text-[#4f46e5]">
+                      {data.orgInvite?.code ?? inviteItem.code}
+                    </div>
+                    <p className="mt-2 text-xs font-semibold text-[#667391]">
+                      Uses today&apos;s organization code. {data.orgInvite?.expiresAt ? `Expires ${new Date(data.orgInvite.expiresAt).toLocaleString()}` : `Invite expires ${new Date(inviteItem.expiresAt).toLocaleDateString()}`}
+                    </p>
                   </div>
                 ))}
                 {data.pendingInvites.length === 0 && <p className="rounded-lg border border-dashed border-[#dfe6f3] p-5 text-center text-sm font-bold text-[#526184]">No email invites are pending.</p>}
@@ -508,7 +550,7 @@ export default function UsersAndTeamsPage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h3 className="text-xl font-black text-[#071035]">Invite User</h3>
-                <p className="mt-1 text-sm font-semibold text-[#526184]">Send a Deskcultr invite with a secure redeem code.</p>
+                <p className="mt-1 text-sm font-semibold text-[#526184]">Send a Deskcultr invite with today&apos;s organization code.</p>
               </div>
               <button onClick={() => setInviteOpen(false)} className="grid h-9 w-9 place-items-center rounded-lg text-[#526184] hover:bg-[#f3f5fb]">x</button>
             </div>
@@ -537,9 +579,12 @@ export default function UsersAndTeamsPage() {
               </div>
               {createdInvite && (
                 <div className="rounded-lg border border-[#ded8ff] bg-[#f8f7ff] p-4">
-                  <p className="text-xs font-black uppercase tracking-wide text-[#526184]">Redeem code</p>
+                  <p className="text-xs font-black uppercase tracking-wide text-[#526184]">Daily invitation code</p>
                   <p className="mt-2 font-mono text-lg font-black tracking-wider text-[#4f46e5]">{createdInvite.code}</p>
-                  <p className="mt-2 break-all text-xs font-semibold text-[#33415c]">{createdInvite.link}</p>
+                  <p className="mt-2 text-xs font-semibold text-[#33415c]">
+                    The employee should open {createdInvite.link}, enter {createdInvite.orgName ?? data.orgInvite?.name ?? "your organization name"}, then paste this code.
+                  </p>
+                  {createdInvite.expiresAt && <p className="mt-1 text-xs font-semibold text-[#667391]">Expires {new Date(createdInvite.expiresAt).toLocaleString()}</p>}
                 </div>
               )}
               <div className="flex justify-end gap-3 pt-3">

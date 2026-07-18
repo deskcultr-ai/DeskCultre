@@ -44,7 +44,7 @@ const personas: PersonaCard[] = [
   {
     id: "employee",
     label: "Employee / Team Member",
-    description: "You work within a team. You'll join an existing workspace with an invite code.",
+    description: "You work within a team. You'll find your organization, then request access with an invite code.",
     suggestedPath: "join",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-7 w-7">
@@ -85,7 +85,10 @@ export default function OnboardingPage() {
   const [industrySector, setIndustrySector] = useState("Technology & SaaS");
 
   const [inviteCode, setInviteCode] = useState("");
-  const [inviteToken, setInviteToken] = useState("");
+  const [joinStage, setJoinStage] = useState<"lookup" | "code">("lookup");
+  const [orgSearch, setOrgSearch] = useState("");
+  const [companyMatches, setCompanyMatches] = useState<Array<{ id: string; name: string; slug: string | null }>>([]);
+  const [selectedCompanyId, setSelectedCompanyId] = useState("");
   const [testingRole, setTestingRole] = useState("member");
   const [availableDepartments, setAvailableDepartments] = useState<{ id: string; name: string }[]>([]);
   const [selectedDepartment, setSelectedDepartment] = useState<string>("");
@@ -150,34 +153,6 @@ export default function OnboardingPage() {
     const params = new URLSearchParams(window.location.search);
     const action = params.get("action");
     const userId = params.get("user_id");
-    const linkedInviteCode = params.get("invite_code");
-    const linkedInviteToken = params.get("invite_token");
-
-    if (linkedInviteCode && linkedInviteToken) {
-      const invite = {
-        code: linkedInviteCode.trim().toUpperCase(),
-        token: linkedInviteToken.trim(),
-      };
-      setInviteCode(invite.code);
-      setInviteToken(invite.token);
-      setStep("join");
-      window.localStorage.setItem("deskCulture.pendingInvite", JSON.stringify(invite));
-    } else {
-      const savedInvite = window.localStorage.getItem("deskCulture.pendingInvite");
-      if (savedInvite) {
-        try {
-          const parsed = JSON.parse(savedInvite) as { code?: string; token?: string };
-          if (parsed.code && parsed.token) {
-            setInviteCode(parsed.code.toUpperCase());
-            setInviteToken(parsed.token);
-            setStep("join");
-          }
-        } catch {
-          window.localStorage.removeItem("deskCulture.pendingInvite");
-        }
-      }
-    }
-
     if (action === "activate" && userId) {
       async function activate() {
         setLoading(true);
@@ -196,49 +171,6 @@ export default function OnboardingPage() {
       check();
     }
   }, [check]);
-
-  // 3. Fetch departments & verify organization in real-time as invite code is typed
-  useEffect(() => {
-    if (inviteCode.trim().length < 4) {
-      setAvailableDepartments([]);
-      setSelectedDepartment("");
-      setVerifiedCompany("");
-      return;
-    }
-
-    async function fetchDepts() {
-      const trimmedCode = inviteCode.trim().toUpperCase();
-      // Fetch company name first to confirm invite code is valid
-      const { data: compData, error: compErr } = await supabase
-        .from("companies")
-        .select("name")
-        .eq("join_code", trimmedCode)
-        .maybeSingle();
-
-      if (!compErr && compData) {
-        setVerifiedCompany(compData.name);
-      } else {
-        setVerifiedCompany("");
-      }
-
-      const { data, error } = await supabase.rpc("get_departments_by_code", {
-        code: trimmedCode,
-      });
-      if (!error && data) {
-        setAvailableDepartments(data);
-        if (data.length > 0) {
-          setSelectedDepartment(data[0].id);
-        } else {
-          setSelectedDepartment("");
-        }
-      } else {
-        setAvailableDepartments([]);
-        setSelectedDepartment("");
-      }
-    }
-
-    fetchDepts();
-  }, [inviteCode]);
 
   async function saveName(event: React.FormEvent) {
     event.preventDefault();
@@ -287,23 +219,39 @@ export default function OnboardingPage() {
 
   async function joinOrg(event: React.FormEvent) {
     event.preventDefault();
-    if (!inviteCode.trim()) return;
+    if (joinStage === "lookup") {
+      if (!orgSearch.trim()) return;
+      setBusy(true);
+      setError("");
+      const { data, error: searchError } = await supabase.rpc("find_company_for_join", {
+        search_name: orgSearch.trim(),
+      });
+      setBusy(false);
+      if (searchError) {
+        setError(searchError.message);
+        return;
+      }
+      const matches = (data ?? []) as Array<{ id: string; name: string; slug: string | null }>;
+      setCompanyMatches(matches);
+      if (matches.length === 1) {
+        await selectCompany(matches[0]);
+      } else if (matches.length === 0) {
+        setError("No organization matched that name.");
+      }
+      return;
+    }
+
+    if (!inviteCode.trim() || !selectedCompanyId) return;
 
     setBusy(true);
     setError("");
 
     const trimmedCode = inviteCode.trim().toUpperCase();
-    const { error: rpcError } = inviteToken
-      ? await supabase.rpc("redeem_user_invite", {
-          invite_code: trimmedCode,
-          invite_token: inviteToken,
-          target_department: selectedDepartment || null,
-        })
-      : await supabase.rpc("join_company_for_testing", {
-          code: trimmedCode,
-          target_role: testingRole,
-          target_department: selectedDepartment || null,
-        });
+    const { error: rpcError } = await supabase.rpc("join_company_with_daily_code", {
+      target_company: selectedCompanyId,
+      invite_code: trimmedCode,
+      target_department: selectedDepartment || null,
+    });
 
     setBusy(false);
     if (rpcError) {
@@ -312,8 +260,25 @@ export default function OnboardingPage() {
     }
 
     // Refresh profile to trigger "waiting-approval" state display
-    window.localStorage.removeItem("deskCulture.pendingInvite");
     check();
+  }
+
+  async function selectCompany(company: { id: string; name: string }) {
+    setSelectedCompanyId(company.id);
+    setVerifiedCompany(company.name);
+    setJoinStage("code");
+    setInviteCode("");
+    setError("");
+    const { data, error: deptError } = await supabase.rpc("get_departments_by_company", {
+      target_company: company.id,
+    });
+    if (!deptError && data) {
+      setAvailableDepartments(data);
+      setSelectedDepartment(data[0]?.id ?? "");
+    } else {
+      setAvailableDepartments([]);
+      setSelectedDepartment("");
+    }
   }
 
   async function cancelRequest() {
@@ -562,15 +527,25 @@ export default function OnboardingPage() {
                   </div>
                   <h3 className="text-xl font-bold text-slate-900">Join Existing Workspace</h3>
                   <p className="mt-3 text-sm leading-relaxed text-slate-500">
-                    Enter an invitation code shared by your admin to join their organization with a specific role.
+                    Search your organization name, then enter the code sent by Deskcultr or shared by your admin.
                   </p>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setStep("join")}
+                  onClick={() => {
+                    setJoinStage("lookup");
+                    setOrgSearch("");
+                    setCompanyMatches([]);
+                    setSelectedCompanyId("");
+                    setVerifiedCompany("");
+                    setInviteCode("");
+                    setAvailableDepartments([]);
+                    setSelectedDepartment("");
+                    setStep("join");
+                  }}
                   className="mt-8 inline-flex items-center gap-1.5 text-sm font-bold text-indigo-600 hover:text-indigo-700 transition hover:gap-2"
                 >
-                  Redeem Invite Code
+                  Find Organization
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-4 w-4">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
                   </svg>
@@ -668,76 +643,102 @@ export default function OnboardingPage() {
         {step === "join" && (
           <Card className="rounded-3xl border border-white/70 bg-white/80 p-8 shadow-xl backdrop-blur-xl">
             <form onSubmit={joinOrg} className="space-y-6">
-              <label className="block text-sm font-bold text-slate-700">
-                Invitation Code
-                <Input
-                  required
-                  value={inviteCode}
-                  onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-                  placeholder="DC-MKTG-2026"
-                  className="mt-2 h-12 rounded-2xl font-mono tracking-wider"
-                />
-                {inviteCode.trim().length >= 4 && (
-                  <span className={cn(
-                    "text-xs font-bold mt-1.5 block leading-relaxed",
-                    verifiedCompany ? "text-success" : "text-danger"
-                  )}>
-                    {verifiedCompany ? `✓ Verified organization: ${verifiedCompany}` : "✗ Invite code not found"}
-                  </span>
-                )}
-                <span className="text-xs text-slate-400 mt-1 block leading-relaxed font-normal">
-                  {inviteToken ? "This code came from your Deskcultr invite email." : "Ask your workspace admin for this code."}
-                </span>
-              </label>
-
-              {/* Department Dropdown — loaded in real-time */}
-              <label className="block text-sm font-bold text-slate-700">
-                Select Department
-                <Select
-                  required
-                  value={selectedDepartment}
-                  onChange={(e) => setSelectedDepartment(e.target.value)}
-                  className="mt-2 h-12 rounded-2xl"
-                  disabled={availableDepartments.length === 0}
-                >
-                  {availableDepartments.length === 0 ? (
-                    <option value="">(Enter a valid invite code to view departments)</option>
-                  ) : (
-                    availableDepartments.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.name}
-                      </option>
-                    ))
+              {joinStage === "lookup" ? (
+                <>
+                  <div>
+                    <h2 className="text-xl font-extrabold text-slate-900">Find your organization</h2>
+                    <p className="mt-2 text-sm font-medium leading-relaxed text-slate-500">
+                      Enter your organization name. Once we find it, Deskcultr will ask for the daily invitation code from your email.
+                    </p>
+                  </div>
+                  <label className="block text-sm font-bold text-slate-700">
+                    Organization Name
+                    <Input
+                      required
+                      value={orgSearch}
+                      onChange={(e) => {
+                        setOrgSearch(e.target.value);
+                        setCompanyMatches([]);
+                      }}
+                      placeholder="DeskCulture"
+                      className="mt-2 h-12 rounded-2xl"
+                    />
+                  </label>
+                  {companyMatches.length > 1 && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Select matching organization</p>
+                      {companyMatches.map((company) => (
+                        <button
+                          key={company.id}
+                          type="button"
+                          onClick={() => selectCompany(company)}
+                          className="flex w-full items-center justify-between rounded-2xl border border-indigo-100 bg-indigo-50/50 px-4 py-3 text-left text-sm font-bold text-slate-800 hover:border-indigo-300 hover:bg-indigo-50"
+                        >
+                          {company.name}
+                          <span className="text-indigo-600">Continue</span>
+                        </button>
+                      ))}
+                    </div>
                   )}
-                </Select>
-              </label>
+                </>
+              ) : (
+                <>
+                  <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 p-4">
+                    <p className="text-xs font-bold uppercase tracking-wide text-indigo-500">Organization found</p>
+                    <h2 className="mt-1 text-xl font-extrabold text-slate-900">{verifiedCompany}</h2>
+                    <p className="mt-2 text-sm font-semibold leading-relaxed text-slate-600">
+                      Check your mail for the invitation code. Your admin can also share today&apos;s code from Users &amp; Teams.
+                    </p>
+                  </div>
+                  <label className="block text-sm font-bold text-slate-700">
+                    Invitation Code
+                    <Input
+                      required
+                      value={inviteCode}
+                      onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                      placeholder="DC-7A2F-91BC"
+                      className="mt-2 h-12 rounded-2xl font-mono tracking-wider"
+                    />
+                    <span className="text-xs text-slate-400 mt-1 block leading-relaxed font-normal">
+                      Codes rotate every 24 hours. Use the latest code from your email or admin.
+                    </span>
+                  </label>
 
-              <label className="block text-sm font-bold text-slate-700">
-                Your Role
-                <Select
-                  value={testingRole}
-                  onChange={(e) => setTestingRole(e.target.value)}
-                  className="mt-2 h-12 rounded-2xl"
-                  disabled={Boolean(inviteToken)}
-                >
-                  <option value="member">{inviteToken ? "Assigned by invite — admin approval required" : "Employee — HR summary, tasks, meetings"}</option>
-                  <option value="admin">Admin — Full settings, departments, user management</option>
-                  <option value="manager">Department Manager — Scoped tasks &amp; team chats</option>
-                  <option value="guest">Guest — Read-only file viewing</option>
-                </Select>
-                {inviteToken && (
-                  <span className="mt-1.5 block text-xs font-semibold text-slate-500">
-                    Your invited role is secured in the invite. The admin approves the final access after redemption.
-                  </span>
-                )}
-              </label>
+                  <label className="block text-sm font-bold text-slate-700">
+                    Select Department
+                    <Select
+                      value={selectedDepartment}
+                      onChange={(e) => setSelectedDepartment(e.target.value)}
+                      className="mt-2 h-12 rounded-2xl"
+                    >
+                      <option value="">No department yet</option>
+                      {availableDepartments.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </label>
+                </>
+              )}
 
               <div className="flex gap-4 pt-6 border-t border-slate-100">
                 <Button
                   type="button"
                   variant="secondary"
                   className="flex-1 h-12 rounded-2xl font-bold"
-                  onClick={() => setStep("choose")}
+                  onClick={() => {
+                    if (joinStage === "code") {
+                      setJoinStage("lookup");
+                      setSelectedCompanyId("");
+                      setVerifiedCompany("");
+                      setInviteCode("");
+                      setAvailableDepartments([]);
+                      setSelectedDepartment("");
+                    } else {
+                      setStep("choose");
+                    }
+                  }}
                   disabled={busy}
                 >
                   Go Back
@@ -745,9 +746,9 @@ export default function OnboardingPage() {
                 <Button
                   type="submit"
                   className="flex-1 h-12 rounded-2xl font-bold bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center gap-1.5"
-                  disabled={busy || !inviteCode.trim() || (availableDepartments.length > 0 && !selectedDepartment)}
+                  disabled={busy || (joinStage === "lookup" ? !orgSearch.trim() : !inviteCode.trim() || !selectedCompanyId)}
                 >
-                  {busy ? "Joining..." : inviteToken ? "Redeem Invite & Request Approval →" : "Redeem Invite Code →"}
+                  {busy ? "Working..." : joinStage === "lookup" ? "Find Organization ->" : "Request Admin Approval ->"}
                 </Button>
               </div>
             </form>

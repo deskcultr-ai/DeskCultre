@@ -1,16 +1,24 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/cn";
 import { Avatar } from "@/components/ui";
 import type { Profile } from "@/lib/session";
-import { displayName, isAdmin } from "@/lib/session";
+import { displayName } from "@/lib/session";
 
 type NavItem = { label: string; href?: string; icon: React.ReactNode };
 type NavGroup = { heading?: string; items: NavItem[] };
+type NotificationItem = {
+  id: string;
+  title: string;
+  body: string | null;
+  link: string | null;
+  read_at: string | null;
+  created_at: string;
+};
 
 const icon = (d: string) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-[18px] w-[18px] shrink-0">
@@ -71,7 +79,6 @@ const adminNav: NavGroup[] = [
       { label: "Users & Teams", href: "/admin/users", icon: icon(ICONS.users) },
       { label: "Departments", href: "/admin/departments", icon: icon(ICONS.building) },
       { label: "Roles & Permissions", href: "/admin/roles", icon: icon(ICONS.shield) },
-      { label: "Workspaces", href: "/admin/workspaces", icon: icon(ICONS.grid) },
     ],
   },
   {
@@ -84,28 +91,7 @@ const adminNav: NavGroup[] = [
       { label: "Calendar", href: "/admin/calendar", icon: icon(ICONS.calendar) },
       { label: "Announcements", href: "/admin/announcements", icon: icon(ICONS.megaphone) },
       { label: "Chat", href: "/admin/chat", icon: icon(ICONS.chat) },
-    ],
-  },
-  {
-    heading: "Resources",
-    items: [
       { label: "Drive", href: "/admin/drive", icon: icon(ICONS.folder) },
-      { label: "Knowledge Base", href: "/admin/kb", icon: icon(ICONS.book) },
-    ],
-  },
-  {
-    heading: "Analytics",
-    items: [
-      { label: "Reports", href: "/admin/reports", icon: icon(ICONS.file) },
-      { label: "Analytics", href: "/admin/analytics", icon: icon(ICONS.chart) },
-    ],
-  },
-  {
-    heading: "System",
-    items: [
-      { label: "Settings", href: "/admin/settings", icon: icon(ICONS.gear) },
-      { label: "Integrations", href: "/admin/integrations", icon: icon(ICONS.link) },
-      { label: "Audit Logs", href: "/admin/audit", icon: icon(ICONS.logs) },
     ],
   },
 ];
@@ -128,6 +114,14 @@ export function AppShell({
   const pathname = usePathname();
   const router = useRouter();
   const groups = variant === "admin" ? adminNav : employeeNav;
+  const isAdminShell = variant === "admin";
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
   useEffect(() => {
     if (variant === "admin") {
@@ -142,19 +136,82 @@ export function AppShell({
     }
   }, [variant]);
 
+  useEffect(() => {
+    if (!isAdminShell || !profile?.id) return;
+    let alive = true;
+    async function loadNotifications() {
+      const { data } = await supabase
+        .from("notifications")
+        .select("id,title,body,link,read_at,created_at")
+        .eq("profile_id", profile!.id)
+        .order("created_at", { ascending: false })
+        .limit(6);
+      if (alive) setNotifications((data as NotificationItem[]) ?? []);
+    }
+    loadNotifications();
+    return () => {
+      alive = false;
+    };
+  }, [isAdminShell, profile?.id]);
+
+  useEffect(() => {
+    if (!isAdminShell) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setSearchOpen(true);
+      }
+      if (event.key === "Escape") {
+        setSearchOpen(false);
+        setNotificationsOpen(false);
+        setProfileOpen(false);
+        setMobileNavOpen(false);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isAdminShell]);
+
+  const searchItems = useMemo(
+    () =>
+      groups
+        .flatMap((group) => group.items)
+        .filter((item): item is NavItem & { href: string } => Boolean(item.href))
+        .filter((item) => item.label.toLowerCase().includes(searchQuery.trim().toLowerCase())),
+    [groups, searchQuery]
+  );
+
+  const unreadCount = notifications.filter((item) => !item.read_at).length;
+
   async function signOut() {
     await supabase.auth.signOut();
     router.replace("/");
   }
 
-  const isAdminShell = variant === "admin";
+  function goTo(href: string) {
+    router.push(href);
+    setSearchOpen(false);
+    setProfileOpen(false);
+    setNotificationsOpen(false);
+    setMobileNavOpen(false);
+  }
+
+  async function openNotification(item: NotificationItem) {
+    if (!item.read_at) {
+      const readAt = new Date().toISOString();
+      setNotifications((current) => current.map((n) => (n.id === item.id ? { ...n, read_at: readAt } : n)));
+      await supabase.from("notifications").update({ read_at: readAt }).eq("id", item.id);
+    }
+    if (item.link) goTo(item.link);
+  }
 
   return (
     <div className={cn("flex min-h-screen transition-colors duration-200", isAdminShell ? "bg-[#f8faff] text-[#0f1740]" : "bg-[#f8fafc] dark:bg-slate-950 dark:text-slate-100")}>
       {/* Sidebar */}
       <aside
         className={cn(
-          "hidden shrink-0 flex-col border-r lg:flex",
+          "hidden shrink-0 flex-col border-r",
+          sidebarCollapsed ? "lg:hidden" : "lg:flex",
           isAdminShell ? "w-[264px] border-[#e7ebf5] bg-white" : "w-64 border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
         )}
       >
@@ -226,6 +283,19 @@ export function AppShell({
               </div>
             </div>
           )}
+          {isAdminShell && (
+            <div className="mb-4 rounded-lg border border-[#dedbff] bg-gradient-to-br from-[#f7f5ff] to-[#eef4ff] p-4">
+              <div className="grid h-10 w-10 place-items-center rounded-lg bg-[#ede8ff] text-primary">{icon(ICONS.shield)}</div>
+              <p className="mt-3 text-sm font-bold text-[#101936]">Upgrade to Pro</p>
+              <p className="mt-1 text-xs text-[#637091]">Unlock advanced analytics</p>
+              <button className="mt-4 inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-primary text-xs font-bold text-white shadow-ds-sm">
+                Upgrade Now
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-3.5 w-3.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14m-6-6 6 6-6 6" />
+                </svg>
+              </button>
+            </div>
+          )}
           <div className={cn("flex items-center gap-3", isAdminShell && "hidden")}>
             <Avatar name={displayName(profile)} src={profile?.avatar_url ?? undefined} size="md" />
             <div className="min-w-0 flex-1">
@@ -245,16 +315,82 @@ export function AppShell({
         </div>
       </aside>
 
+      {mobileNavOpen && (
+        <div className="fixed inset-0 z-40 lg:hidden">
+          <button
+            aria-label="Close navigation"
+            className="absolute inset-0 bg-slate-950/35"
+            onClick={() => setMobileNavOpen(false)}
+          />
+          <aside className="relative flex h-full w-[286px] max-w-[86vw] flex-col border-r border-[#e7ebf5] bg-white shadow-2xl">
+            <div className="flex items-center justify-between px-5 py-4">
+              <Link href="/" className="flex items-center gap-3" onClick={() => setMobileNavOpen(false)}>
+                <div className="grid h-9 w-9 place-items-center rounded-lg bg-gradient-to-br from-primary to-violet-500 text-sm font-bold text-white">DC</div>
+                <span className="text-lg font-extrabold tracking-tight text-[#101936]">DeskCulture</span>
+              </Link>
+              <button
+                aria-label="Close navigation"
+                onClick={() => setMobileNavOpen(false)}
+                className="grid h-9 w-9 place-items-center rounded-lg text-[#24304f] hover:bg-[#f3f5fb]"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 6l12 12M18 6 6 18" />
+                </svg>
+              </button>
+            </div>
+            <nav className="flex-1 overflow-y-auto px-3 pb-4">
+              {groups.map((group, groupIndex) => (
+                <div key={group.heading ?? groupIndex} className="mb-5">
+                  {group.heading && <p className="px-3 pb-2 pt-2 text-[11px] font-bold uppercase tracking-wider text-[#7180a6]">{group.heading}</p>}
+                  <ul className="space-y-1">
+                    {group.items.map((item) => {
+                      const active = item.href && (pathname === item.href || (item.href !== "/admin" && pathname.startsWith(`${item.href}/`)));
+                      return (
+                        <li key={item.label}>
+                          {item.href ? (
+                            <Link
+                              href={item.href}
+                              onClick={() => setMobileNavOpen(false)}
+                              className={cn(
+                                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition",
+                                active ? "bg-[#f0edff] text-primary" : "text-[#4b587d] hover:bg-[#f6f7fb] hover:text-primary"
+                              )}
+                            >
+                              {item.icon}
+                              {item.label}
+                            </Link>
+                          ) : null}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ))}
+            </nav>
+          </aside>
+        </div>
+      )}
+
       {/* Main */}
       <div className="flex min-w-0 flex-1 flex-col">
         <header
           className={cn(
-            "sticky top-0 z-20 flex items-center gap-4 border-b px-6 py-4 backdrop-blur-xl",
+            "sticky top-0 z-20 flex items-center gap-3 border-b px-4 py-3 backdrop-blur-xl sm:gap-4 sm:px-6 sm:py-4",
             isAdminShell ? "border-[#e6eaf3] bg-white/90" : "border-slate-200 bg-white/80 dark:border-slate-800 dark:bg-slate-900/80"
           )}
         >
           {isAdminShell && (
-            <button aria-label="Open navigation" className="grid h-9 w-9 place-items-center rounded-lg text-[#24304f] hover:bg-[#f3f5fb]">
+            <button
+              aria-label="Open navigation"
+              onClick={() => {
+                if (window.matchMedia("(min-width: 1024px)").matches) {
+                  setSidebarCollapsed((collapsed) => !collapsed);
+                } else {
+                  setMobileNavOpen(true);
+                }
+              }}
+              className="grid h-9 w-9 place-items-center rounded-lg text-[#24304f] hover:bg-[#f3f5fb]"
+            >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7h16M4 12h16M4 17h16" />
               </svg>
@@ -267,28 +403,140 @@ export function AppShell({
           {actions}
           {isAdminShell && (
             <>
-              <div className="hidden h-11 w-[360px] max-w-[28vw] items-center gap-3 rounded-lg border border-[#e3e7f2] bg-[#f9faff] px-4 lg:flex">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5 text-[#4b587d]">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m21 21-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z" />
-                </svg>
-                <input className="min-w-0 flex-1 bg-transparent text-sm text-[#24304f] outline-none placeholder:text-[#7180a6]" placeholder="Search anything..." />
-                <span className="rounded-md border border-[#dfe4ef] bg-white px-2 py-1 text-[11px] font-semibold text-[#7180a6]">Ctrl + K</span>
-              </div>
-              <button aria-label="Notifications" className="relative grid h-10 w-10 place-items-center rounded-lg text-[#18213d] hover:bg-[#f3f5fb]">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.86 17.08a2.25 2.25 0 0 1-5.72 0M18 8a6 6 0 1 0-12 0c0 7-3 7-3 7h18s-3 0-3-7Z" />
-                </svg>
-                <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-red-500 px-1 text-[10px] font-black text-white">12</span>
-              </button>
-              <div className="hidden items-center gap-3 lg:flex">
-                <Avatar name={displayName(profile)} src={profile?.avatar_url ?? undefined} size="lg" />
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-bold text-[#101936]">{profile?.full_name || "Admin User"}</p>
-                  <p className="truncate text-xs capitalize text-[#637091]">{profile?.role?.replace("_", " ") || "Super Admin"}</p>
+              <div className="relative ml-auto w-full max-w-[420px] md:w-[360px] lg:w-[420px]">
+                <div className="flex h-11 items-center gap-3 rounded-lg border border-[#e3e7f2] bg-[#f9faff] px-3 sm:px-4">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5 shrink-0 text-[#4b587d]">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m21 21-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z" />
+                  </svg>
+                  <input
+                    value={searchQuery}
+                    onChange={(event) => {
+                      setSearchQuery(event.target.value);
+                      setSearchOpen(true);
+                    }}
+                    onFocus={() => setSearchOpen(true)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && searchItems[0]) goTo(searchItems[0].href);
+                    }}
+                    className="min-w-0 flex-1 bg-transparent text-sm text-[#24304f] outline-none placeholder:text-[#7180a6]"
+                    placeholder="Search anything..."
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setSearchOpen(true)}
+                    className="hidden rounded-md border border-[#dfe4ef] bg-white px-2 py-1 text-[11px] font-semibold text-[#7180a6] sm:block"
+                  >
+                    Ctrl + K
+                  </button>
                 </div>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-4 w-4 text-[#637091]">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m6 9 6 6 6-6" />
-                </svg>
+                {searchOpen && (
+                  <div className="absolute right-0 top-[calc(100%+8px)] z-30 w-full overflow-hidden rounded-lg border border-[#e2e7f2] bg-white shadow-[0_18px_48px_rgba(27,42,94,0.14)]">
+                    <div className="max-h-[320px] overflow-y-auto p-2">
+                      {(searchQuery.trim() ? searchItems : searchItems.slice(0, 6)).map((item) => (
+                        <button
+                          key={item.href}
+                          type="button"
+                          onClick={() => goTo(item.href)}
+                          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-[#24304f] hover:bg-[#f4f1ff] hover:text-primary"
+                        >
+                          {item.icon}
+                          {item.label}
+                        </button>
+                      ))}
+                      {searchItems.length === 0 && (
+                        <p className="rounded-lg px-3 py-4 text-center text-sm font-semibold text-[#7180a6]">No matching admin tab.</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="relative">
+                <button
+                  aria-label="Notifications"
+                  onClick={() => {
+                    setNotificationsOpen((open) => !open);
+                    setProfileOpen(false);
+                    setSearchOpen(false);
+                  }}
+                  className="relative grid h-10 w-10 place-items-center rounded-lg text-[#18213d] hover:bg-[#f3f5fb]"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.86 17.08a2.25 2.25 0 0 1-5.72 0M18 8a6 6 0 1 0-12 0c0 7-3 7-3 7h18s-3 0-3-7Z" />
+                  </svg>
+                  {unreadCount > 0 && (
+                    <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-red-500 px-1 text-[10px] font-black text-white">
+                      {unreadCount > 9 ? "9+" : unreadCount}
+                    </span>
+                  )}
+                </button>
+                {notificationsOpen && (
+                  <div className="absolute right-0 top-[calc(100%+10px)] z-30 w-[320px] max-w-[86vw] overflow-hidden rounded-lg border border-[#e2e7f2] bg-white shadow-[0_18px_48px_rgba(27,42,94,0.14)]">
+                    <div className="flex items-center justify-between border-b border-[#eef1f7] px-4 py-3">
+                      <p className="text-sm font-black text-[#111936]">Notifications</p>
+                      <button onClick={() => goTo("/admin/settings")} className="text-xs font-black text-primary">Settings</button>
+                    </div>
+                    <div className="max-h-[320px] overflow-y-auto p-2">
+                      {notifications.length > 0 ? (
+                        notifications.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => openNotification(item)}
+                            className="flex w-full gap-3 rounded-lg px-3 py-3 text-left hover:bg-[#f8faff]"
+                          >
+                            <span className={cn("mt-1 h-2.5 w-2.5 shrink-0 rounded-full", item.read_at ? "bg-[#cfd6e8]" : "bg-red-500")} />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-bold text-[#111936]">{item.title}</span>
+                              {item.body && <span className="mt-0.5 block line-clamp-2 text-xs font-semibold text-[#7180a6]">{item.body}</span>}
+                            </span>
+                          </button>
+                        ))
+                      ) : (
+                        <p className="rounded-lg px-3 py-6 text-center text-sm font-semibold text-[#7180a6]">No notifications yet.</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="relative">
+                <button
+                  onClick={() => {
+                    setProfileOpen((open) => !open);
+                    setNotificationsOpen(false);
+                    setSearchOpen(false);
+                  }}
+                  className="flex items-center gap-2 rounded-lg px-1.5 py-1 text-left hover:bg-[#f3f5fb] sm:gap-3 sm:px-2"
+                >
+                  <Avatar name={displayName(profile)} src={profile?.avatar_url ?? undefined} size="lg" />
+                  <div className="hidden min-w-0 lg:block">
+                    <p className="truncate text-sm font-bold text-[#101936]">{profile?.full_name || displayName(profile)}</p>
+                    <p className="truncate text-xs capitalize text-[#637091]">{profile?.role?.replace("_", " ") || "Admin"}</p>
+                  </div>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="hidden h-4 w-4 text-[#637091] sm:block">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m6 9 6 6 6-6" />
+                  </svg>
+                </button>
+                {profileOpen && (
+                  <div className="absolute right-0 top-[calc(100%+10px)] z-30 w-[260px] overflow-hidden rounded-lg border border-[#e2e7f2] bg-white shadow-[0_18px_48px_rgba(27,42,94,0.14)]">
+                    <div className="border-b border-[#eef1f7] px-4 py-4">
+                      <p className="truncate text-sm font-black text-[#111936]">{profile?.full_name || displayName(profile)}</p>
+                      <p className="truncate text-xs font-semibold text-[#7180a6]">{profile?.email}</p>
+                    </div>
+                    <div className="p-2">
+                      <button onClick={() => goTo("/admin/settings")} className="w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-[#24304f] hover:bg-[#f4f1ff]">Admin settings</button>
+                      <button onClick={() => goTo("/profile")} className="w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-[#24304f] hover:bg-[#f4f1ff]">Profile</button>
+                      <button onClick={() => goTo("/account")} className="w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-[#24304f] hover:bg-[#f4f1ff]">Account</button>
+                    </div>
+                    <div className="border-t border-[#eef1f7] p-2">
+                      <button
+                        onClick={signOut}
+                        className="w-full rounded-lg px-3 py-2 text-left text-sm font-bold text-red-600 hover:bg-red-50"
+                      >
+                        Sign out
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </>
           )}

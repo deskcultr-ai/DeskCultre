@@ -102,7 +102,7 @@ function AuthCallbackContent() {
 
       const next = searchParams.get("next");
       const redirectTo =
-        next === "/account" ? "/account" : await getPostAuthRedirect();
+        next === "/account" || next === "/onboarding" ? next : await getPostAuthRedirect();
 
       if (!cancelled) {
         router.replace(redirectTo);
@@ -124,7 +124,7 @@ function AuthCallbackContent() {
         </div>
         <h1 className="mt-5 text-2xl font-black tracking-tight">Finishing sign in</h1>
         <p className="mt-2 text-sm leading-6 text-slate-600">
-          We are confirming your session and preparing your workspace.
+          We are confirming your session and preparing your organization setup.
         </p>
 
         {!error && (
@@ -161,7 +161,7 @@ export default function AuthCallbackPage() {
               D
             </div>
             <h1 className="mt-5 text-2xl font-black tracking-tight">Finishing sign in</h1>
-            <p className="mt-2 text-sm leading-6 text-slate-600">Preparing your workspace.</p>
+            <p className="mt-2 text-sm leading-6 text-slate-600">Preparing your organization setup.</p>
             <div className="mt-6 flex justify-center">
               <span className="h-6 w-6 animate-spin rounded-full border-[3px] border-indigo-600 border-t-transparent" />
             </div>

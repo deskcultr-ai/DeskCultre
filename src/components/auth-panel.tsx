@@ -113,7 +113,7 @@ export default function AuthPanel({ initialMode = "login" }: AuthPanelProps) {
       email: email.trim(),
       password,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        emailRedirectTo: `${window.location.origin}/auth/callback?next=/onboarding`,
         data: {
           registration_type: "workspace_join_request",
           first_name: firstName.trim(),
@@ -131,8 +131,8 @@ export default function AuthPanel({ initialMode = "login" }: AuthPanelProps) {
 
     setMessage(
       data.user && !data.session
-        ? "✉️ Check your inbox! We sent you an activation link. Click it to verify your account — you'll then be taken to the workspace setup screen where you can create or join an organization."
-        : "Your account is active. Redirecting to workspace setup..."
+        ? "Check your inbox. Deskcultr sent you an activation link. Click it to verify your account, then you will be taken to the setup screen where you can create or join an organization."
+        : "Your account is active. Redirecting to organization setup..."
     );
 
     if (data.user && !data.session) {
@@ -163,7 +163,7 @@ export default function AuthPanel({ initialMode = "login" }: AuthPanelProps) {
         <div className="mt-6 rounded-2xl bg-slate-50 border border-slate-100 p-4 text-xs text-slate-500 text-left space-y-1.5 w-full">
           <p className="font-semibold text-slate-700">What happens next?</p>
           <p>1. Open your inbox and verify the email address.</p>
-          <p>2. Click the link to return here and configure your workspace.</p>
+          <p>2. Click the link to return here and configure your organization.</p>
           <p>3. Choose between setting up a new org or joining an existing one.</p>
         </div>
 

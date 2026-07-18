@@ -1,36 +1,108 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import type { ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
-import { getProfile, isAdmin, type Profile } from "@/lib/session";
 import { AppShell } from "@/components/app-shell";
-import { Card, Badge, ProgressCircle, Avatar, Button } from "@/components/ui";
+import { AvatarGroup, Button, Card, ProgressCircle } from "@/components/ui";
+import { getProfile, isAdmin, type Profile } from "@/lib/session";
+import { supabase } from "@/lib/supabase";
 
-type Stats = {
-  employees: number;
-  departments: number;
-  tasks: number;
-  pendingApprovals: number;
-  meetingsToday: number;
-  storageUsed: number;
-  storageLimit: number;
+type Period = "today" | "week" | "month";
+type ApprovalKind = "request" | "leave" | "access";
+
+type DashboardData = {
+  stats: {
+    totalUsers: number;
+    newUsers: number;
+    departments: number;
+    newDepartments: number;
+    totalTasks: number;
+    currentTasks: number;
+    previousTasks: number;
+    activeProjects: number;
+    newProjects: number;
+    pendingApprovals: number;
+    meetingsToday: number;
+    storageUsed: number;
+    storageLimit: number;
+    teamGoalPercent: number;
+  };
+  organizationActivity: Array<{ date: string; label: string; count: number }>;
+  departmentDistribution: Array<{ id: string; name: string; count: number; percent: number }>;
+  departmentPerformance: Array<{ id: string; name: string; total: number; completed: number; percent: number }>;
+  recentActivity: Array<{ id: string; title: string; detail: string; createdAt: string }>;
+  upcomingMeetings: Array<{ id: string; title: string; startsAt: string; endsAt: string | null; joinUrl: string | null }>;
+  pendingApprovals: Array<{ id: string; kind: ApprovalKind; title: string; person: string; priority: string; createdAt: string; href: string }>;
+  storageBreakdown: Array<{ label: string; bytes: number }>;
+  teamMembers: Array<{ id: string; name: string; avatarUrl: string | null; role: string }>;
 };
 
-type StatusCount = { status: string; count: number };
-type DeptRow = { id: string; name: string; workload: string; total: number; done: number };
-type ActivityRow = { id: string; summary: string | null; action: string; created_at: string };
-type MeetingRow = { id: string; title: string; starts_at: string };
+const emptyDashboard: DashboardData = {
+  stats: {
+    totalUsers: 0,
+    newUsers: 0,
+    departments: 0,
+    newDepartments: 0,
+    totalTasks: 0,
+    currentTasks: 0,
+    previousTasks: 0,
+    activeProjects: 0,
+    newProjects: 0,
+    pendingApprovals: 0,
+    meetingsToday: 0,
+    storageUsed: 0,
+    storageLimit: 536870912000,
+    teamGoalPercent: 0,
+  },
+  organizationActivity: [],
+  departmentDistribution: [],
+  departmentPerformance: [],
+  recentActivity: [],
+  upcomingMeetings: [],
+  pendingApprovals: [],
+  storageBreakdown: [],
+  teamMembers: [],
+};
 
-function fmtBytes(bytes: number) {
+const icon = (path: string, className = "h-5 w-5") => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className={className}>
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={path} />
+  </svg>
+);
+
+const icons = {
+  users: "M17 20h5v-2a4 4 0 0 0-6.7-2.95M17 20H7m10 0v-2a5 5 0 0 0-.86-2.8M7 20H2v-2a4 4 0 0 1 6.7-2.95M12 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0Zm8 1a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z",
+  building: "M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.25c0-.69.56-1.25 1.25-1.25h3.5c.69 0 1.25.56 1.25 1.25V21",
+  task: "M9 5h6M9 12l2 2 4-4M7 3h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z",
+  folder: "M3 7h5l2 2h11v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z",
+  calendar: "M6.75 3v2.25M17.25 3v2.25M3 9h18M5.25 5.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25A2.25 2.25 0 0 1 18.75 21H5.25A2.25 2.25 0 0 1 3 18.75V7.5A2.25 2.25 0 0 1 5.25 5.25Z",
+  clock: "M12 6.75V12l3 1.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z",
+  drive: "M4.5 19.5h15m-12.9 0L12 4.5l5.4 15m-10.8 0L2.7 12.75 8.1 4.5h7.8l5.4 8.25-3.9 6.75",
+  megaphone: "M10.34 15.84 9.2 19.25a1.5 1.5 0 0 1-2.85-.08L5.63 16.5M19.5 12c0 2.6.56 5.06 1.57 7.29.13.29-.08.62-.4.62H19.5a7.5 7.5 0 0 1-7.5-7.5v-.82a7.5 7.5 0 0 1 7.5-7.5h1.17c.32 0 .53.33.4.62A17.9 17.9 0 0 0 19.5 12ZM12 12H4.5a2 2 0 0 0 0 4H12",
+  plusUser: "M18 9v6m3-3h-6M12 8a4 4 0 1 1-8 0 4 4 0 0 1 8 0ZM3 21a6 6 0 0 1 12 0",
+  shield: "M9 12.75 11.25 15 15 9.75m-3-7.04A12 12 0 0 1 3.6 6 12 12 0 0 0 3 9.75c0 5.59 3.82 10.29 9 11.62 5.18-1.33 9-6.03 9-11.62 0-1.31-.21-2.57-.6-3.75A12 12 0 0 1 12 2.71Z",
+};
+
+const statTone = {
+  violet: "bg-[#ece8ff] text-[#4f46e5]",
+  blue: "bg-[#e9f1ff] text-[#2563eb]",
+  green: "bg-[#e5f8ee] text-[#0f9f6e]",
+  amber: "bg-[#fff3dc] text-[#f59e0b]",
+};
+
+const colors = ["#4f46e5", "#38bdf8", "#f59e0b", "#10b981", "#ef4444", "#94a3b8", "#8b5cf6"];
+
+function formatBytes(bytes: number) {
   if (!bytes) return "0 GB";
   const gb = bytes / 1024 ** 3;
-  return gb < 1 ? `${(bytes / 1024 ** 2).toFixed(1)} MB` : `${gb.toFixed(1)} GB`;
+  if (gb >= 1) return `${gb.toFixed(1)} GB`;
+  return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
 }
 
-function timeAgo(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
+function timeAgo(value: string) {
+  const diff = Date.now() - new Date(value).getTime();
+  const mins = Math.max(0, Math.floor(diff / 60000));
   if (mins < 1) return "just now";
   if (mins < 60) return `${mins}m ago`;
   const hours = Math.floor(mins / 60);
@@ -38,690 +110,423 @@ function timeAgo(iso: string) {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
+function buildActivityPath(items: DashboardData["organizationActivity"]) {
+  const safe = items.length > 0 ? items : Array.from({ length: 7 }, (_, index) => ({ date: "", label: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][index], count: 0 }));
+  const max = Math.max(1, ...safe.map((item) => item.count));
+  const points = safe.map((item, index) => {
+    const x = 44 + index * (672 / Math.max(1, safe.length - 1));
+    const y = 174 - (item.count / max) * 96;
+    return { ...item, x, y };
+  });
+  const line = points.map((point, index) => `${index === 0 ? "M" : "L"}${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" ");
+  const area = `${line} L${points.at(-1)?.x ?? 716} 198 L${points[0]?.x ?? 44} 198 Z`;
+  return { points, line, area, peak: points.reduce((best, item) => (item.count > best.count ? item : best), points[0]) };
+}
+
+function distributionGradient(items: DashboardData["departmentDistribution"]) {
+  const active = items.filter((item) => item.percent > 0);
+  if (!active.length) return "#edf1f8";
+  let cursor = 0;
+  return `conic-gradient(${active
+    .map((item, index) => {
+      const end = cursor + item.percent;
+      const value = `${colors[index % colors.length]} ${cursor}% ${end}%`;
+      cursor = end;
+      return value;
+    })
+    .join(", ")})`;
+}
+
+function StatCard({
+  label,
+  value,
+  helper,
+  tone,
+  iconNode,
+  href,
+}: {
+  label: string;
+  value: number;
+  helper: string;
+  tone: keyof typeof statTone;
+  iconNode: ReactNode;
+  href: string;
+}) {
+  const router = useRouter();
+  return (
+    <button onClick={() => router.push(href)} className="text-left">
+      <Card className="min-h-[126px] rounded-lg border-[#e7ebf5] p-5 shadow-[0_12px_32px_rgba(27,42,94,0.06)] transition hover:-translate-y-0.5 hover:border-[#c8c2ff] hover:shadow-[0_16px_40px_rgba(27,42,94,0.12)]">
+        <div className="flex items-start justify-between gap-4">
+          <span className={`grid h-12 w-12 place-items-center rounded-lg ${statTone[tone]}`}>{iconNode}</span>
+          <div className="text-right">
+            <p className="text-[12px] font-bold text-[#111936]">{label}</p>
+            <p className="mt-2 text-[28px] font-black leading-none text-[#071035]">{value}</p>
+          </div>
+        </div>
+        <div className="mt-5 flex items-center justify-between gap-3">
+          <span className="text-xs font-bold text-[#0f9f6e]">{helper}</span>
+          <svg viewBox="0 0 60 24" className="h-6 w-16 fill-none">
+            <path d="M1 15 C10 16 14 7 24 12 S42 18 59 5" stroke="#10b981" strokeWidth={2.4} strokeLinecap="round" />
+          </svg>
+        </div>
+      </Card>
+    </button>
+  );
+}
+
+function EmptyState({ message }: { message: string }) {
+  return <div className="rounded-lg border border-dashed border-[#dfe5f2] bg-[#fbfcff] px-4 py-6 text-center text-sm font-semibold text-[#7180a6]">{message}</div>;
+}
+
 export default function AdminDashboardPage() {
   const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [denied, setDenied] = useState(false);
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [taskStatuses, setTaskStatuses] = useState<StatusCount[]>([]);
-  const [attendance, setAttendance] = useState<StatusCount[]>([]);
-  const [departments, setDepartments] = useState<DeptRow[]>([]);
-  const [activity, setActivity] = useState<ActivityRow[]>([]);
-  const [meetings, setMeetings] = useState<MeetingRow[]>([]);
+  const [period, setPeriod] = useState<Period>("week");
+  const [approvalTab, setApprovalTab] = useState<ApprovalKind>("request");
+  const [dashboard, setDashboard] = useState<DashboardData>(emptyDashboard);
+  const [error, setError] = useState("");
 
   const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
     const me = await getProfile();
     if (!me) {
       router.replace("/");
       return;
     }
     setProfile(me);
-
     if (!me.company_id || me.status !== "active") {
       router.replace("/onboarding");
       return;
     }
-
     if (!isAdmin(me)) {
       setDenied(true);
       setLoading(false);
       return;
     }
 
-    const companyId = me.company_id;
-    const today = new Date();
-    const dayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
-    const dayEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1).toISOString();
-    const workDate = today.toISOString().slice(0, 10);
-
-    const [
-      employeesRes,
-      deptRes,
-      tasksRes,
-      requestsRes,
-      pendingProfilesRes,
-      leaveRes,
-      meetingsTodayRes,
-      filesRes,
-      companyRes,
-      attendanceRes,
-      activityRes,
-      upcomingRes,
-    ] = await Promise.all([
-      supabase.from("profiles").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "active"),
-      supabase.from("departments").select("id, name, workload").eq("company_id", companyId),
-      supabase.from("tasks").select("id, status, department_id").eq("company_id", companyId),
-      supabase.from("requests").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "pending"),
-      supabase.from("profiles").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "pending"),
-      supabase.from("leave_requests").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "pending"),
-      supabase.from("meetings").select("id", { count: "exact", head: true }).eq("company_id", companyId).gte("starts_at", dayStart).lt("starts_at", dayEnd),
-      supabase.from("drive_files").select("size_bytes").eq("company_id", companyId).eq("is_trashed", false),
-      supabase.from("companies").select("storage_limit_bytes").eq("id", companyId).maybeSingle(),
-      supabase.from("attendance_sessions").select("status").eq("company_id", companyId).eq("work_date", workDate),
-      supabase.from("activity_log").select("id, summary, action, created_at").eq("company_id", companyId).order("created_at", { ascending: false }).limit(5),
-      supabase.from("meetings").select("id, title, starts_at").eq("company_id", companyId).gte("starts_at", new Date().toISOString()).order("starts_at").limit(3),
-    ]);
-
-    const tasks = tasksRes.data ?? [];
-    const storageUsed = (filesRes.data ?? []).reduce((sum, f) => sum + (f.size_bytes ?? 0), 0);
-
-    setStats({
-      employees: employeesRes.count ?? 0,
-      departments: (deptRes.data ?? []).length,
-      tasks: tasks.length,
-      pendingApprovals: (requestsRes.count ?? 0) + (pendingProfilesRes.count ?? 0) + (leaveRes.count ?? 0),
-      meetingsToday: meetingsTodayRes.count ?? 0,
-      storageUsed,
-      storageLimit: companyRes.data?.storage_limit_bytes ?? 500 * 1024 * 1024 * 1024, // 500GB fallback
-    });
-
-    const byStatus = new Map<string, number>();
-    for (const t of tasks) byStatus.set(t.status, (byStatus.get(t.status) ?? 0) + 1);
-    setTaskStatuses([...byStatus.entries()].map(([status, count]) => ({ status, count })).sort((a, b) => b.count - a.count));
-
-    const att = new Map<string, number>();
-    for (const a of attendanceRes.data ?? []) att.set(a.status, (att.get(a.status) ?? 0) + 1);
-    setAttendance([...att.entries()].map(([status, count]) => ({ status, count })));
-
-    setDepartments(
-      (deptRes.data ?? []).map((d) => {
-        const deptTasks = tasks.filter((t) => t.department_id === d.id);
-        return {
-          id: d.id,
-          name: d.name,
-          workload: d.workload,
-          total: deptTasks.length,
-          done: deptTasks.filter((t) => t.status === "completed").length,
-        };
-      })
-    );
-
-    setActivity(activityRes.data ?? []);
-    setMeetings(upcomingRes.data ?? []);
+    const { data, error: rpcError } = await supabase.rpc("get_admin_dashboard_data", { period });
+    if (rpcError) {
+      setError(rpcError.message);
+      setDashboard(emptyDashboard);
+    } else {
+      setDashboard({ ...emptyDashboard, ...(data as DashboardData) });
+    }
     setLoading(false);
-  }, [router]);
+  }, [period, router]);
 
   useEffect(() => {
     load();
   }, [load]);
 
+  const activityChart = useMemo(() => buildActivityPath(dashboard.organizationActivity), [dashboard.organizationActivity]);
+  const filteredApprovals = dashboard.pendingApprovals.filter((item) => item.kind === approvalTab);
+  const storagePct = dashboard.stats.storageLimit > 0 ? Math.min(100, Math.round((dashboard.stats.storageUsed / dashboard.stats.storageLimit) * 100)) : 0;
+  const todayLabel = new Intl.DateTimeFormat(undefined, { weekday: "short", day: "2-digit", month: "short", year: "numeric" }).format(new Date());
+  const taskTrend =
+    dashboard.stats.previousTasks > 0
+      ? `${Math.round(((dashboard.stats.currentTasks - dashboard.stats.previousTasks) / dashboard.stats.previousTasks) * 100)}% ${period}`
+      : `${dashboard.stats.currentTasks} new ${period}`;
+
   if (loading) {
-    return <main className="grid min-h-screen place-items-center bg-[#f8fafc] dark:bg-slate-950 text-slate-500">Loading dashboard...</main>;
+    return <main className="grid min-h-screen place-items-center bg-[#f8faff] text-sm font-semibold text-[#637091]">Loading dashboard...</main>;
   }
 
   if (denied) {
     return (
       <AppShell profile={profile} title="Admin Dashboard" variant="admin">
-        <Card className="mx-auto max-w-md text-center">
-          <h2 className="text-h4 text-slate-900">Admin access required</h2>
-          <p className="mt-2 text-sm text-slate-600">Your role doesn&apos;t have access to the admin dashboard.</p>
-          <Button className="mt-5" onClick={() => router.push("/dashboard")}>
-            Go to my dashboard
-          </Button>
+        <Card className="mx-auto max-w-md rounded-lg text-center">
+          <h2 className="text-xl font-black text-[#111936]">Admin access required</h2>
+          <p className="mt-2 text-sm text-[#637091]">Your account is active, but it does not have Admin controls.</p>
+          <Button className="mt-5" onClick={() => router.push("/dashboard")}>Go to my dashboard</Button>
         </Card>
       </AppShell>
     );
   }
 
-  const totalTasks = stats?.tasks ?? 0;
-  const storagePct = stats?.storageLimit ? Math.round((stats.storageUsed / stats.storageLimit) * 100) : 14; // Default mockup pct is 14%
-
-  // Build task statuses with fallback counts matching screenshot mockup if DB is empty
-  const mockTaskStatuses = [
-    { status: "completed", count: 142, pct: "41.5%", color: "bg-success" },
-    { status: "in_progress", count: 86, pct: "25.1%", color: "bg-primary" },
-    { status: "pending", count: 78, pct: "22.8%", color: "bg-amber-400" },
-    { status: "on_hold", count: 26, pct: "7.6%", color: "bg-slate-400" },
-    { status: "overdue", count: 10, pct: "2.9%", color: "bg-danger" },
-  ];
-
-  // Fallback activity rows matching screenshot
-  const mockActivities = [
-    { id: "1", type: "join", summary: "New employee John Doe joined", desc: "Marketing Department", time: "10m ago", color: "bg-emerald-100 text-emerald-600" },
-    { id: "2", type: "task", summary: "Task \"Banner Design\" completed", desc: "by Ayesha Khan", time: "25m ago", color: "bg-sky-100 text-sky-600" },
-    { id: "3", type: "leave", summary: "Leave request approved", desc: "Rahul Verma", time: "1h ago", color: "bg-amber-100 text-amber-600" },
-    { id: "4", type: "file", summary: "New file uploaded in Drive", desc: "Campaign Brief.pdf", time: "2h ago", color: "bg-indigo-100 text-indigo-600" },
-    { id: "5", type: "meeting", summary: "Marketing Team meeting started", desc: "Q2 Campaign Discussion", time: "2h ago", color: "bg-violet-100 text-violet-600" },
-  ];
-
-  // Fallback department workload cards matching screenshot
-  const mockDeptWorkloads = [
-    { name: "Marketing", workload: "High", pct: 85, color: "text-red-500 bg-red-50 dark:bg-red-950/20", trend: "stroke-red-500" },
-    { name: "Design", workload: "Medium", pct: 70, color: "text-amber-500 bg-amber-50 dark:bg-amber-950/20", trend: "stroke-amber-500" },
-    { name: "Product Listing", workload: "High", pct: 88, color: "text-red-500 bg-red-50 dark:bg-red-950/20", trend: "stroke-red-500" },
-    { name: "Logistics", workload: "Medium", pct: 65, color: "text-amber-500 bg-amber-50 dark:bg-amber-950/20", trend: "stroke-amber-500" },
-    { name: "Customer Care", workload: "Low", pct: 40, color: "text-emerald-500 bg-emerald-50 dark:bg-emerald-950/20", trend: "stroke-emerald-500" },
-    { name: "Technical", workload: "Medium", pct: 60, color: "text-amber-500 bg-amber-50 dark:bg-amber-950/20", trend: "stroke-amber-500" },
-  ];
-
   return (
-    <AppShell
-      profile={profile}
-      variant="admin"
-      title="Admin Dashboard"
-      subtitle="Welcome back, Admin! Here's what's happening in DeskCulture."
-    >
-      <div className="mb-4 flex justify-end">
-        <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#dfe4ef] bg-white px-4 text-sm font-semibold text-[#253152] shadow-ds-sm">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-4 w-4">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25A2.25 2.25 0 0 1 18.75 21H5.25A2.25 2.25 0 0 1 3 18.75ZM3 11.25h18" />
-          </svg>
-          May 12 - May 18, 2024
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-4 w-4 text-[#7180a6]">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m6 9 6 6 6-6" />
-          </svg>
-        </button>
-      </div>
+    <AppShell profile={profile} variant="admin" title="" subtitle="">
+      <div className="space-y-5">
+        <section className="overflow-hidden rounded-lg border border-[#e7ebf5] bg-gradient-to-br from-white via-[#f9fbff] to-[#eef3ff] p-5 shadow-[0_16px_40px_rgba(27,42,94,0.06)] sm:p-6">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <h1 className="text-[26px] font-black leading-tight text-[#071035] sm:text-[28px]">Good Morning, Admin!</h1>
+              <p className="mt-1 text-sm font-semibold text-[#4b587d]">Here is the complete live overview of your organization.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="inline-flex h-12 items-center gap-3 rounded-lg border border-white/80 bg-white/75 px-4 text-sm font-bold text-[#111936] shadow-ds-sm">
+                {icon(icons.calendar, "h-4 w-4 text-[#4f46e5]")}
+                {todayLabel}
+              </div>
+              <div className="inline-flex h-12 items-center gap-3 rounded-lg border border-white/80 bg-white/75 px-4 text-sm font-bold text-[#111936] shadow-ds-sm">
+                {icon(icons.clock, "h-4 w-4 text-[#0f9f6e]")}
+                Live data
+              </div>
+            </div>
+          </div>
+        </section>
 
-      {/* ── Grid Row 1: Premium Stat Cards ── */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        {/* Employees */}
-        <Card className="p-5 flex flex-col justify-between">
-          <div className="flex justify-between items-start">
-            <span className="grid h-10 w-10 place-items-center rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-primary">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+        {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div>}
+
+        <section className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-4">
+          <StatCard label="Total Users" value={dashboard.stats.totalUsers} helper={`+${dashboard.stats.newUsers} this ${period}`} tone="violet" iconNode={icon(icons.users)} href="/admin/users" />
+          <StatCard label="Departments" value={dashboard.stats.departments} helper={dashboard.stats.newDepartments ? `+${dashboard.stats.newDepartments} this ${period}` : "No change"} tone="blue" iconNode={icon(icons.building)} href="/admin/departments" />
+          <StatCard label="Total Tasks" value={dashboard.stats.totalTasks} helper={taskTrend} tone="green" iconNode={icon(icons.task)} href="/admin/tasks" />
+          <StatCard label="Active Projects" value={dashboard.stats.activeProjects} helper={`+${dashboard.stats.newProjects} new`} tone="violet" iconNode={icon(icons.folder)} href="/admin/projects" />
+        </section>
+
+        <section className="grid gap-5 xl:grid-cols-[1.45fr_0.85fr]">
+          <Card className="rounded-lg border-[#e7ebf5] p-5">
+            <div className="flex flex-col gap-3 border-b border-[#e9edf6] pb-4 sm:flex-row sm:items-center sm:justify-between">
+              <h2 className="text-base font-black text-[#111936]">Organization Activity</h2>
+              <div className="inline-flex rounded-lg border border-[#dfe4ef] bg-white p-1">
+                {(["today", "week", "month"] as Period[]).map((item) => (
+                  <button
+                    key={item}
+                    onClick={() => setPeriod(item)}
+                    className={`rounded-md px-3 py-1.5 text-xs font-black capitalize ${period === item ? "bg-[#f0edff] text-primary" : "text-[#637091]"}`}
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="mt-5 h-[260px] overflow-hidden sm:h-[300px]">
+              <svg viewBox="0 0 760 230" className="h-full w-full">
+                {[28, 76, 124, 172, 220].map((y) => (
+                  <line key={y} x1="44" y1={y} x2="716" y2={y} stroke="#e8edf7" strokeDasharray="3 5" />
+                ))}
+                <path d={activityChart.area} fill="url(#activityFill)" />
+                <path d={activityChart.line} fill="none" stroke="#4338ca" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+                <defs>
+                  <linearGradient id="activityFill" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="0%" stopColor="#6366f1" stopOpacity="0.22" />
+                    <stop offset="100%" stopColor="#6366f1" stopOpacity="0" />
+                  </linearGradient>
+                </defs>
+                {activityChart.points.map((point) => (
+                  <g key={`${point.label}-${point.x}`}>
+                    <circle cx={point.x} cy={point.y} r="4" fill="#4338ca" />
+                    <text x={point.x} y="218" textAnchor="middle" className="fill-[#637091] text-[12px] font-bold">{point.label}</text>
+                  </g>
+                ))}
+                <g transform={`translate(${Math.min(610, Math.max(70, activityChart.peak.x - 58))} 48)`}>
+                  <rect width="116" height="58" rx="8" fill="white" stroke="#e7ebf5" />
+                  <text x="14" y="23" className="fill-[#111936] text-[12px] font-black">Peak Activity</text>
+                  <text x="14" y="42" className="fill-[#4f46e5] text-[12px] font-black">{activityChart.peak.count} actions</text>
+                </g>
               </svg>
-            </span>
-            <div className="text-right">
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Employees</p>
-              <p className="text-2xl font-black text-slate-900 dark:text-white mt-0.5">{stats?.employees ?? 128}</p>
             </div>
-          </div>
-          <div className="mt-4 flex items-center justify-between">
-            <span className="text-[10px] font-bold text-emerald-500 bg-emerald-50 dark:bg-emerald-950/20 px-2 py-0.5 rounded-full flex items-center gap-1">
-              ↑ 12 this week
-            </span>
-            {/* Sparkline mock */}
-            <svg className="w-16 h-5 stroke-emerald-500 stroke-[2] fill-none">
-              <path d="M0,15 Q5,5 10,12 T20,8 T30,14 T40,5 T50,15 T60,2" />
-            </svg>
-          </div>
-        </Card>
+          </Card>
 
-        {/* Departments */}
-        <Card className="p-5 flex flex-col justify-between">
-          <div className="flex justify-between items-start">
-            <span className="grid h-10 w-10 place-items-center rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-600">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-              </svg>
-            </span>
-            <div className="text-right">
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Departments</p>
-              <p className="text-2xl font-black text-slate-900 dark:text-white mt-0.5">{stats?.departments ?? 12}</p>
+          <Card className="rounded-lg border-[#e7ebf5] p-5">
+            <div className="flex items-center justify-between border-b border-[#e9edf6] pb-4">
+              <h2 className="text-base font-black text-[#111936]">Department Distribution</h2>
+              <button onClick={() => router.push("/admin/departments")} className="rounded-lg border border-[#dfe4ef] px-3 py-1.5 text-xs font-bold text-[#4b587d]">Open</button>
             </div>
-          </div>
-          <div className="mt-4 flex items-center justify-between">
-            <span className="text-[10px] font-bold text-slate-400 bg-slate-50 dark:bg-slate-900 px-2 py-0.5 rounded-full">
-              - No change
-            </span>
-            <svg className="w-16 h-5 stroke-slate-400 stroke-[2] fill-none">
-              <path d="M0,10 H60" />
-            </svg>
-          </div>
-        </Card>
-
-        {/* Tasks */}
-        <Card className="p-5 flex flex-col justify-between">
-          <div className="flex justify-between items-start">
-            <span className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-              </svg>
-            </span>
-            <div className="text-right">
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Tasks</p>
-              <p className="text-2xl font-black text-slate-900 dark:text-white mt-0.5">{totalTasks || 342}</p>
-            </div>
-          </div>
-          <div className="mt-4 flex items-center justify-between">
-            <span className="text-[10px] font-bold text-emerald-500 bg-emerald-50 dark:bg-emerald-950/20 px-2 py-0.5 rounded-full">
-              ↑ 18.6%
-            </span>
-            <svg className="w-16 h-5 stroke-emerald-500 stroke-[2] fill-none">
-              <path d="M0,18 Q10,12 20,15 T40,5 T60,2" />
-            </svg>
-          </div>
-        </Card>
-
-        {/* Pending Approvals */}
-        <Card className="p-5 flex flex-col justify-between">
-          <div className="flex justify-between items-start">
-            <span className="grid h-10 w-10 place-items-center rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-600">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </span>
-            <div className="text-right">
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Pending Approvals</p>
-              <p className="text-2xl font-black text-slate-900 dark:text-white mt-0.5">{stats?.pendingApprovals ?? 24}</p>
-            </div>
-          </div>
-          <div className="mt-4 flex items-center justify-between">
-            <span className="text-[10px] font-bold text-red-500 bg-red-50 dark:bg-red-950/20 px-2 py-0.5 rounded-full">
-              ↓ 8.3%
-            </span>
-            <svg className="w-16 h-5 stroke-red-500 stroke-[2] fill-none">
-              <path d="M0,5 Q10,15 20,8 T40,18 T60,15" />
-            </svg>
-          </div>
-        </Card>
-
-        {/* Meetings Today */}
-        <Card className="p-5 flex flex-col justify-between">
-          <div className="flex justify-between items-start">
-            <span className="grid h-10 w-10 place-items-center rounded-xl bg-violet-50 dark:bg-violet-950/40 text-violet-600">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-              </svg>
-            </span>
-            <div className="text-right">
-              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Meetings Today</p>
-              <p className="text-2xl font-black text-slate-900 dark:text-white mt-0.5">{stats?.meetingsToday ?? 8}</p>
-            </div>
-          </div>
-          <div className="mt-4 flex items-center justify-between">
-            <span className="text-[10px] font-bold text-emerald-500 bg-emerald-50 dark:bg-emerald-950/20 px-2 py-0.5 rounded-full">
-              ↑ 3
-            </span>
-            <svg className="w-16 h-5 stroke-emerald-500 stroke-[2] fill-none">
-              <path d="M0,15 H15 L25,5 L40,12 L50,2 L60,8" />
-            </svg>
-          </div>
-        </Card>
-
-        {/* Storage Card */}
-        <Card className="p-5 flex items-center justify-between gap-3">
-          <div>
-            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Storage Used</p>
-            <p className="text-base font-black text-slate-900 dark:text-white mt-1 leading-none">{stats?.storageUsed ? fmtBytes(stats.storageUsed) : "68.4 GB"}</p>
-            <p className="text-[10px] text-slate-400 mt-1">of 500 GB</p>
-          </div>
-          <ProgressCircle value={storagePct} size={50} strokeWidth={5} label={<span className="text-[10px] font-black">{storagePct}%</span>} />
-        </Card>
-      </div>
-
-      {/* ── Grid Row 2: Performance Charts & Recent Activity ── */}
-      <div className="grid gap-6 xl:grid-cols-3 mt-6">
-        {/* Task Overview */}
-        <Card className="p-6">
-          <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3">
-            <h3 className="font-black text-slate-900 dark:text-white text-base">Task Overview</h3>
-            <span className="text-xs text-slate-400 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1 font-bold cursor-pointer hover:bg-slate-50">
-              This Week ▾
-            </span>
-          </div>
-
-          <div className="mt-6 flex flex-col sm:flex-row items-center justify-around gap-6">
-            {/* Custom conic-gradient donut chart */}
-            <div
-              className="relative rounded-full flex items-center justify-center shadow-inner"
-              style={{
-                width: "150px",
-                height: "150px",
-                background: "conic-gradient(#6366f1 0% 41.5%, #3b82f6 41.5% 66.6%, #fbbf24 66.6% 89.4%, #94a3b8 89.4% 97.1%, #f87171 97.1% 100%)",
-              }}
-            >
-              <div className="absolute inset-0 m-4 rounded-full bg-white dark:bg-slate-900 flex flex-col items-center justify-center text-center">
-                <span className="text-2xl font-black text-slate-900 dark:text-white leading-none">{totalTasks || 342}</span>
-                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">Total Tasks</span>
-              </div>
-            </div>
-
-            <ul className="flex-1 space-y-2">
-              {mockTaskStatuses.map((t) => (
-                <li key={t.status} className="flex items-center gap-3 text-xs">
-                  <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${t.color}`} />
-                  <span className="flex-1 capitalize font-medium text-slate-500">{t.status.replace("_", " ")}</span>
-                  <span className="font-bold text-slate-800 dark:text-white">{t.count}</span>
-                  <span className="text-slate-400 w-10 text-right">({t.pct})</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </Card>
-
-        {/* Department Performance */}
-        <Card className="p-6">
-          <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3">
-            <h3 className="font-black text-slate-900 dark:text-white text-base">Department Performance</h3>
-            <span className="text-xs text-slate-400 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1 font-bold cursor-pointer hover:bg-slate-50">
-              This Week ▾
-            </span>
-          </div>
-
-          {/* Vertical Bar Chart */}
-          <div className="h-44 mt-6 flex items-end justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-2">
-            {[
-              { label: "Marketing", pct: 92 },
-              { label: "Design", pct: 78 },
-              { label: "Product Listing", pct: 85 },
-              { label: "Logistics", pct: 65 },
-              { label: "Customer Care", pct: 88 },
-              { label: "Technical", pct: 90 },
-            ].map((d) => (
-              <div key={d.label} className="group relative flex flex-col items-center flex-1">
-                {/* Bar */}
-                <div
-                  className="w-full rounded-t-md bg-indigo-500 hover:bg-indigo-600 transition-all duration-200 flex items-end justify-center text-[10px] font-black text-white pb-1.5"
-                  style={{ height: `${d.pct}%` }}
-                >
-                  <span className="opacity-0 group-hover:opacity-100 transition-opacity absolute -top-8 bg-slate-900 text-white rounded px-1.5 py-0.5 text-[9px]">
-                    {d.pct}%
-                  </span>
-                </div>
-                <span className="text-[9px] font-bold text-slate-400 mt-2 truncate w-full text-center">
-                  {d.label.split(" ")[0]}
-                </span>
-              </div>
-            ))}
-          </div>
-        </Card>
-
-        {/* Recent Activity */}
-        <Card className="p-6">
-          <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3 mb-4">
-            <h3 className="font-black text-slate-900 dark:text-white text-base">Recent Activity</h3>
-            <span
-              onClick={() => router.push("/admin/audit")}
-              className="text-xs text-indigo-600 font-bold hover:underline cursor-pointer"
-            >
-              View All
-            </span>
-          </div>
-
-          <ul className="space-y-3.5">
-            {(activity.length > 0
-              ? activity.map((act) => ({
-                  id: act.id,
-                  summary: act.summary || act.action,
-                  desc: act.action,
-                  time: timeAgo(act.created_at),
-                  color: "bg-indigo-50 text-indigo-600",
-                }))
-              : mockActivities
-            ).map((act) => (
-              <li key={act.id} className="flex gap-3">
-                <span className={`grid h-8 w-8 place-items-center rounded-xl shrink-0 font-bold text-sm ${act.color || "bg-indigo-50 text-indigo-600"}`}>
-                  💬
-                </span>
-                <div className="min-w-0 flex-1 leading-tight">
-                  <p className="truncate text-xs font-bold text-slate-800 dark:text-white">{act.summary}</p>
-                  <p className="truncate text-[10px] text-slate-400 mt-0.5">{act.desc}</p>
-                </div>
-                <span className="text-[9px] font-bold text-slate-400 shrink-0">{act.time}</span>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      </div>
-
-      {/* ── Grid Row 3: Attendance, Top Active Workspaces, Meetings ── */}
-      <div className="grid gap-6 xl:grid-cols-3 mt-6">
-        {/* Attendance Overview */}
-        <Card className="p-6">
-          <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3">
-            <h3 className="font-black text-slate-900 dark:text-white text-base">Attendance Overview</h3>
-            <span className="text-xs text-slate-400 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1 font-bold cursor-pointer hover:bg-slate-50">
-              Today ▾
-            </span>
-          </div>
-
-          <div className="mt-6 flex flex-col sm:flex-row items-center justify-around gap-6">
-            <div
-              className="relative rounded-full flex items-center justify-center shadow-inner"
-              style={{
-                width: "120px",
-                height: "120px",
-                background: "conic-gradient(#10b981 0% 92.1%, #f87171 92.1% 96.8%, #fbbf24 96.8% 100%)",
-              }}
-            >
-              <div className="absolute inset-0 m-3 rounded-full bg-white dark:bg-slate-900 flex flex-col items-center justify-center text-center">
-                <span className="text-xl font-black text-slate-900 dark:text-white">92%</span>
-                <span className="text-[9px] text-emerald-500 font-bold uppercase tracking-wider">Present</span>
-              </div>
-            </div>
-
-            <div className="flex-1 space-y-1.5 text-xs">
-              <div className="flex justify-between font-medium">
-                <span className="flex items-center gap-1.5 text-slate-500">
-                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                  Present
-                </span>
-                <span className="font-bold text-slate-800 dark:text-white">118</span>
-              </div>
-              <div className="flex justify-between font-medium">
-                <span className="flex items-center gap-1.5 text-slate-500">
-                  <span className="h-2 w-2 rounded-full bg-red-500" />
-                  Absent
-                </span>
-                <span className="font-bold text-slate-800 dark:text-white">6</span>
-              </div>
-              <div className="flex justify-between font-medium">
-                <span className="flex items-center gap-1.5 text-slate-500">
-                  <span className="h-2 w-2 rounded-full bg-amber-500" />
-                  On Leave
-                </span>
-                <span className="font-bold text-slate-800 dark:text-white">4</span>
-              </div>
-              <div className="border-t border-slate-100 dark:border-slate-800 pt-1.5 flex justify-between text-slate-400 font-bold uppercase text-[9px]">
-                <span>Total Employees</span>
-                <span className="text-slate-900 dark:text-white">128</span>
-              </div>
-            </div>
-          </div>
-        </Card>
-
-        {/* Top Active Workspaces */}
-        <Card className="p-6">
-          <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3 mb-4">
-            <h3 className="font-black text-slate-900 dark:text-white text-base">Top Active Workspaces</h3>
-            <span className="text-xs text-slate-400 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1 font-bold cursor-pointer">
-              This Week ▾
-            </span>
-          </div>
-
-          <div className="space-y-3.5">
-            {[
-              { name: "Marketing Workspace", pct: 82, color: "bg-indigo-500" },
-              { name: "Product Launch", pct: 74, color: "bg-indigo-500" },
-              { name: "Design Assets", pct: 68, color: "bg-indigo-500" },
-              { name: "Customer Support", pct: 63, color: "bg-red-500" },
-              { name: "Inventory Management", pct: 58, color: "bg-indigo-500" },
-            ].map((w) => (
-              <div key={w.name}>
-                <div className="flex justify-between text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  <span>{w.name}</span>
-                  <span>{w.pct}%</span>
-                </div>
-                <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                  <div className={`h-full ${w.color} rounded-full`} style={{ width: `${w.pct}%` }} />
+            <div className="mt-5 grid gap-5 md:grid-cols-[150px_1fr] xl:grid-cols-1">
+              <div className="relative mx-auto grid h-[150px] w-[150px] place-items-center rounded-full" style={{ background: distributionGradient(dashboard.departmentDistribution) }}>
+                <div className="grid h-[104px] w-[104px] place-items-center rounded-full bg-white text-center shadow-inner">
+                  <div>
+                    <p className="text-[26px] font-black leading-none text-[#071035]">{dashboard.stats.departments}</p>
+                    <p className="mt-1 text-[11px] font-bold text-[#637091]">Departments</p>
+                  </div>
                 </div>
               </div>
-            ))}
-          </div>
+              <div className="space-y-3">
+                {dashboard.departmentDistribution.length > 0 ? (
+                  dashboard.departmentDistribution.map((item, index) => (
+                    <button key={item.id} onClick={() => router.push("/admin/departments")} className="flex w-full items-center gap-3 text-left text-sm font-semibold text-[#4b587d] hover:text-primary">
+                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colors[index % colors.length] }} />
+                      <span className="min-w-0 flex-1 truncate">{item.name}</span>
+                      <span className="font-black text-[#111936]">{item.percent}%</span>
+                    </button>
+                  ))
+                ) : (
+                  <EmptyState message="No departments yet." />
+                )}
+              </div>
+            </div>
+          </Card>
+        </section>
 
-          <div className="mt-4 border-t border-slate-100 dark:border-slate-800 pt-3 text-center">
-            <span
-              onClick={() => router.push("/admin/workspaces")}
-              className="text-xs text-indigo-600 font-bold hover:underline cursor-pointer flex items-center justify-center gap-1"
-            >
-              View All Workspaces ➔
-            </span>
-          </div>
-        </Card>
-
-        {/* Upcoming Meetings */}
-        <Card className="p-6">
-          <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3 mb-4">
-            <h3 className="font-black text-slate-900 dark:text-white text-base">Upcoming Meetings</h3>
-            <span
-              onClick={() => router.push("/admin/meetings")}
-              className="text-xs text-indigo-600 font-bold hover:underline cursor-pointer"
-            >
-              View Calendar
-            </span>
-          </div>
-
-          <ul className="space-y-3">
-            {(meetings.length > 0
-              ? meetings.map((m) => {
-                  const d = new Date(m.starts_at);
-                  return {
-                    id: m.id,
-                    title: m.title,
-                    month: d.toLocaleString(undefined, { month: "short" }).toUpperCase(),
-                    date: d.getDate(),
-                    time: d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }),
-                  };
-                })
-              : [
-                  { id: "1", title: "Weekly Admin Sync", month: "MAY", date: 18, time: "10:00 AM - 11:00 AM" },
-                  { id: "2", title: "Marketing Strategy Review", month: "MAY", date: 18, time: "01:30 PM - 02:30 PM" },
-                  { id: "3", title: "Product Roadmap Discussion", month: "MAY", date: 18, time: "04:00 PM - 05:00 PM" },
-                ]
-            ).map((m) => (
-              <li key={m.id} className="flex items-center gap-3 justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-indigo-50 dark:bg-slate-800 text-center leading-none">
-                    <span className="text-[9px] font-black text-indigo-600 dark:text-indigo-400 block uppercase">
-                      {m.month}
+        <section className="grid gap-5 xl:grid-cols-[1fr_0.9fr_0.75fr]">
+          <Card className="rounded-lg border-[#e7ebf5] p-5">
+            <div className="mb-5 flex items-center justify-between">
+              <h2 className="text-base font-black text-[#111936]">Department Performance</h2>
+              <button onClick={() => router.push("/admin/reports")} className="text-xs font-black text-[#4f46e5]">View Report</button>
+            </div>
+            <div className="space-y-4">
+              {dashboard.departmentPerformance.length > 0 ? (
+                dashboard.departmentPerformance.map((dept, index) => (
+                  <button key={dept.id} onClick={() => router.push("/admin/departments")} className="grid w-full grid-cols-[28px_1fr_110px_42px] items-center gap-3 text-left sm:grid-cols-[28px_1fr_140px_42px]">
+                    <span className="grid h-7 w-7 place-items-center rounded-lg bg-[#eef2ff] text-xs font-black text-[#4f46e5]">{index + 1}</span>
+                    <span className="min-w-0 truncate text-sm font-bold text-[#111936]">{dept.name}</span>
+                    <span className="h-2 rounded-full bg-[#edf0f7]">
+                      <span className="block h-full rounded-full bg-[#4f46e5]" style={{ width: `${dept.percent}%` }} />
                     </span>
-                    <span className="text-sm font-black text-slate-800 dark:text-white mt-0.5 block">{m.date}</span>
-                  </div>
-                  <div className="min-w-0">
-                    <p className="truncate text-xs font-bold text-slate-900 dark:text-white leading-snug">{m.title}</p>
-                    <p className="text-[10px] text-slate-400 font-semibold mt-0.5">{m.time}</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => router.push("/admin/meetings")}
-                  className="rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-[10px] font-bold text-slate-600 hover:bg-slate-50 transition"
-                >
-                  Join
-                </button>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      </div>
+                    <span className="text-right text-sm font-black text-[#111936]">{dept.percent}%</span>
+                  </button>
+                ))
+              ) : (
+                <EmptyState message="No department task data yet." />
+              )}
+            </div>
+          </Card>
 
-      {/* ── Grid Row 4: Department Workload & Quick Actions ── */}
-      <div className="grid gap-6 lg:grid-cols-[1fr_360px] mt-6">
-        {/* Department Workload */}
-        <Card className="p-6">
-          <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3 mb-5">
-            <h3 className="font-black text-slate-900 dark:text-white text-base">Department Workload</h3>
-            <span className="text-xs text-slate-400 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1 font-bold cursor-pointer">
-              This Week ▾
-            </span>
-          </div>
+          <Card className="rounded-lg border-[#e7ebf5] p-5">
+            <div className="mb-5 flex items-center justify-between">
+              <h2 className="text-base font-black text-[#111936]">Recent Activity</h2>
+              <button onClick={() => router.push("/admin/audit")} className="text-xs font-black text-[#4f46e5]">View All</button>
+            </div>
+            <div className="space-y-4">
+              {dashboard.recentActivity.length > 0 ? (
+                dashboard.recentActivity.map((item) => (
+                  <button key={item.id} onClick={() => router.push("/admin/audit")} className="flex w-full items-center gap-3 text-left">
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#eef4ff] text-[#4f46e5]">{icon(icons.shield, "h-4 w-4")}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-bold text-[#111936]">{item.title}</span>
+                      <span className="mt-0.5 block truncate text-xs font-semibold text-[#7180a6]">{timeAgo(item.createdAt)}</span>
+                    </span>
+                  </button>
+                ))
+              ) : (
+                <EmptyState message="No activity recorded yet." />
+              )}
+            </div>
+          </Card>
 
-          <div className="grid gap-4 grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
-            {mockDeptWorkloads.map((d) => (
-              <div key={d.name} className="rounded-2xl border border-slate-100 dark:border-slate-800 p-3.5 flex flex-col justify-between">
-                <div>
-                  <p className="text-xs font-bold text-slate-900 dark:text-white truncate">{d.name}</p>
-                  <span className={`mt-2 inline-block rounded-full px-2 py-0.5 text-[9px] font-black ${d.color}`}>
-                    {d.workload}
+          <Card className="rounded-lg border-[#e7ebf5] p-5">
+            <div className="mb-5 flex items-center justify-between">
+              <h2 className="text-base font-black text-[#111936]">Upcoming Meetings</h2>
+              <button onClick={() => router.push("/admin/meetings")} className="rounded-lg bg-[#f0edff] px-3 py-1.5 text-xs font-black text-[#4f46e5]">Open</button>
+            </div>
+            <div className="space-y-4">
+              {dashboard.upcomingMeetings.length > 0 ? (
+                dashboard.upcomingMeetings.map((meeting) => {
+                  const starts = new Date(meeting.startsAt);
+                  const time = starts.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+                  return (
+                    <div key={meeting.id} className="rounded-lg border border-[#eef1f7] bg-[#fbfcff] p-4">
+                      <p className="text-xs font-black uppercase text-[#637091]">{starts.toLocaleDateString(undefined, { month: "short", day: "2-digit" })}</p>
+                      <p className="mt-2 text-sm font-black text-[#111936]">{meeting.title}</p>
+                      <div className="mt-2 flex items-center justify-between gap-3">
+                        <p className="text-xs font-semibold text-[#7180a6]">{time}</p>
+                        <button onClick={() => (meeting.joinUrl ? window.open(meeting.joinUrl, "_blank") : router.push("/admin/meetings"))} className="h-8 rounded-lg border border-[#dfe4ef] px-3 text-xs font-bold text-[#4f46e5]">Join</button>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <EmptyState message="No upcoming meetings." />
+              )}
+            </div>
+          </Card>
+        </section>
+
+        <section className="grid gap-5 xl:grid-cols-[1.15fr_0.65fr_0.75fr]">
+          <Card className="rounded-lg border-[#e7ebf5] p-5">
+            <div className="border-b border-[#e9edf6] pb-4">
+              <h2 className="text-base font-black text-[#111936]">Pending Approvals</h2>
+              <div className="mt-4 flex flex-wrap gap-4 text-xs font-bold">
+                {(["request", "leave", "access"] as ApprovalKind[]).map((item) => (
+                  <button key={item} onClick={() => setApprovalTab(item)} className={approvalTab === item ? "border-b-2 border-[#4f46e5] pb-2 capitalize text-[#4f46e5]" : "pb-2 capitalize text-[#637091]"}>
+                    {item}s ({dashboard.pendingApprovals.filter((approval) => approval.kind === item).length})
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="mt-4 space-y-3">
+              {filteredApprovals.length > 0 ? (
+                filteredApprovals.map((approval) => (
+                  <button key={approval.id} onClick={() => router.push(approval.href)} className="grid w-full grid-cols-[18px_1fr_74px] items-center gap-3 text-left sm:grid-cols-[18px_1fr_74px_74px]">
+                    <span className="h-4 w-4 rounded border border-[#cfd6e8]" />
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-bold text-[#111936]">{approval.title}</span>
+                      <span className="block truncate text-xs font-semibold text-[#7180a6]">{approval.person}</span>
+                    </span>
+                    <span className="rounded-lg bg-[#fff3dc] px-2 py-1 text-center text-xs font-black text-[#f59e0b]">{approval.priority}</span>
+                    <span className="hidden h-8 rounded-lg bg-[#dff7ec] text-center text-xs font-black leading-8 text-[#0f9f6e] sm:block">Review</span>
+                  </button>
+                ))
+              ) : (
+                <EmptyState message={`No pending ${approvalTab} approvals.`} />
+              )}
+            </div>
+            <button onClick={() => router.push("/admin/requests")} className="mt-5 w-full text-center text-sm font-black text-[#4f46e5]">View All Requests</button>
+          </Card>
+
+          <Card className="rounded-lg border-[#e7ebf5] p-5">
+            <div className="flex items-center justify-between border-b border-[#e9edf6] pb-4">
+              <h2 className="text-base font-black text-[#111936]">Storage Usage</h2>
+              <button onClick={() => router.push("/admin/drive")} className="text-xs font-black text-[#4f46e5]">Manage</button>
+            </div>
+            <div className="mt-5 grid place-items-center">
+              <ProgressCircle
+                value={storagePct}
+                size={132}
+                strokeWidth={11}
+                label={
+                  <span className="text-center">
+                    <span className="block text-[24px] font-black leading-none text-[#071035]">{formatBytes(dashboard.stats.storageUsed)}</span>
+                    <span className="mt-1 block text-xs font-bold text-[#637091]">of {formatBytes(dashboard.stats.storageLimit)}</span>
+                    <span className="mt-1 block text-[11px] font-black text-[#4f46e5]">{storagePct}% Used</span>
                   </span>
-                </div>
-                <div className="mt-4 flex items-center justify-between">
-                  <svg className="w-12 h-5 fill-none" viewBox="0 0 50 20">
-                    <path d="M0,15 L10,12 L20,17 L30,5 L40,10 L50,2" className={`${d.trend} stroke-[2]`} />
-                  </svg>
-                  <span className="text-xs font-black text-slate-900 dark:text-white">{d.pct}%</span>
-                </div>
+                }
+              />
+            </div>
+            <div className="mt-5 space-y-2 text-xs font-semibold">
+              {dashboard.storageBreakdown.length > 0 ? (
+                dashboard.storageBreakdown.map((item, index) => (
+                  <div key={item.label} className="flex items-center gap-2 text-[#637091]">
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: colors[index % colors.length] }} />
+                    <span className="flex-1">{item.label}</span>
+                    <span className="font-black text-[#111936]">{formatBytes(item.bytes)}</span>
+                  </div>
+                ))
+              ) : (
+                <EmptyState message="No files tracked yet." />
+              )}
+            </div>
+          </Card>
+
+          <Card className="rounded-lg border-[#e7ebf5] p-5">
+            <h2 className="border-b border-[#e9edf6] pb-4 text-base font-black text-[#111936]">Quick Actions</h2>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              {[
+                { label: "Add User", path: "/admin/users", icon: icons.plusUser },
+                { label: "Create Task", path: "/admin/tasks", icon: icons.task },
+                { label: "Send Notice", path: "/admin/announcements", icon: icons.megaphone },
+                { label: "View Calendar", path: "/admin/calendar", icon: icons.calendar },
+              ].map((action) => (
+                <button key={action.label} onClick={() => router.push(action.path)} className="group flex min-h-[90px] flex-col items-center justify-center gap-3 rounded-lg border border-[#eef1f7] bg-[#f8faff] p-3 text-center transition hover:border-[#c9c3ff] hover:bg-[#f4f1ff]">
+                  <span className="grid h-11 w-11 place-items-center rounded-lg bg-white text-[#24304f] shadow-ds-sm transition group-hover:bg-[#4f46e5] group-hover:text-white">{icon(action.icon, "h-5 w-5")}</span>
+                  <span className="text-xs font-black text-[#4b587d]">{action.label}</span>
+                </button>
+              ))}
+            </div>
+            <Button className="mt-5 w-full" onClick={() => router.push("/admin/drive")}>Manage Storage</Button>
+          </Card>
+        </section>
+
+        <section className="rounded-lg border border-[#e2e7f2] bg-white p-5 shadow-[0_12px_32px_rgba(27,42,94,0.05)]">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-4">
+              <span className="grid h-12 w-12 place-items-center rounded-lg bg-[#ece8ff] text-[#4f46e5]">{icon(icons.shield)}</span>
+              <div>
+                <h2 className="text-base font-black text-[#111936]">{dashboard.stats.teamGoalPercent}% of tracked tasks are complete.</h2>
+                <p className="mt-1 text-sm font-semibold text-[#637091]">This score updates from your company task records.</p>
               </div>
-            ))}
+            </div>
+            {dashboard.teamMembers.length > 0 ? (
+              <AvatarGroup people={dashboard.teamMembers.map((member) => ({ name: member.name, src: member.avatarUrl ?? undefined }))} size="md" />
+            ) : (
+              <span className="text-sm font-semibold text-[#7180a6]">No active team members yet.</span>
+            )}
           </div>
-        </Card>
-
-        {/* Quick Actions Panel */}
-        <Card className="p-6">
-          <h3 className="font-black text-slate-900 dark:text-white text-base border-b border-slate-100 dark:border-slate-800 pb-3 mb-5">
-            Quick Actions
-          </h3>
-
-          <div className="grid grid-cols-5 gap-2 text-center">
-            {/* Add User */}
-            <button
-              onClick={() => router.push("/admin/users")}
-              className="flex flex-col items-center group cursor-pointer"
-            >
-              <div className="h-10 w-10 rounded-xl bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-white hover:bg-indigo-500 hover:text-white transition duration-200 flex items-center justify-center shadow-sm">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-                </svg>
-              </div>
-              <span className="text-[10px] font-bold text-slate-500 group-hover:text-indigo-600 transition mt-2">
-                Add User
-              </span>
-            </button>
-
-            {/* Create Task */}
-            <button
-              onClick={() => router.push("/admin/tasks")}
-              className="flex flex-col items-center group cursor-pointer"
-            >
-              <div className="h-10 w-10 rounded-xl bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-white hover:bg-indigo-500 hover:text-white transition duration-200 flex items-center justify-center shadow-sm">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                </svg>
-              </div>
-              <span className="text-[10px] font-bold text-slate-500 group-hover:text-indigo-600 transition mt-2">
-                Create Task
-              </span>
-            </button>
-
-            {/* Create Request */}
-            <button
-              onClick={() => router.push("/admin/requests")}
-              className="flex flex-col items-center group cursor-pointer"
-            >
-              <div className="h-10 w-10 rounded-xl bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-white hover:bg-indigo-500 hover:text-white transition duration-200 flex items-center justify-center shadow-sm">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                </svg>
-              </div>
-              <span className="text-[10px] font-bold text-slate-500 group-hover:text-indigo-600 transition mt-2">
-                Create Request
-              </span>
-            </button>
-
-            {/* Schedule Meeting */}
-            <button
-              onClick={() => router.push("/admin/meetings")}
-              className="flex flex-col items-center group cursor-pointer"
-            >
-              <div className="h-10 w-10 rounded-xl bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-white hover:bg-indigo-500 hover:text-white transition duration-200 flex items-center justify-center shadow-sm">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-              </div>
-              <span className="text-[10px] font-bold text-slate-500 group-hover:text-indigo-600 transition mt-2">
-                Schedule Meeting
-              </span>
-            </button>
-
-            {/* Announcement */}
-            <button
-              onClick={() => router.push("/admin/announcements")}
-              className="flex flex-col items-center group cursor-pointer"
-            >
-              <div className="h-10 w-10 rounded-xl bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-white hover:bg-indigo-500 hover:text-white transition duration-200 flex items-center justify-center shadow-sm">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" />
-                </svg>
-              </div>
-              <span className="text-[10px] font-bold text-slate-500 group-hover:text-indigo-600 transition mt-2">
-                Broadcast Notice
-              </span>
-            </button>
-          </div>
-        </Card>
+        </section>
       </div>
     </AppShell>
   );

@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { NextResponse } from "next/server";
 
 type InviteRequest = {
@@ -29,6 +30,18 @@ function appOrigin(request: Request) {
     process.env.CLOUDFLARE_DEPLOYMENT_URL ||
     new URL(request.url).origin
   ).replace(/\/$/, "");
+}
+
+async function envValue(name: string) {
+  const fromProcess = process.env[name];
+  if (fromProcess) return fromProcess;
+  try {
+    const context = await getCloudflareContext({ async: true });
+    const value = context.env[name as keyof typeof context.env];
+    return typeof value === "string" ? value : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function inviteHtml(link: string, orgName: string, code: string) {
@@ -71,8 +84,8 @@ function inviteHtml(link: string, orgName: string, code: string) {
 }
 
 export async function POST(request: Request) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const supabaseUrl = await envValue("NEXT_PUBLIC_SUPABASE_URL");
+  const supabaseAnonKey = await envValue("NEXT_PUBLIC_SUPABASE_ANON_KEY");
   const authorization = request.headers.get("authorization");
 
   if (!supabaseUrl || !supabaseAnonKey || !authorization) {
@@ -85,7 +98,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Email is required." }, { status: 400 });
   }
 
-  const resendKey = process.env.RESEND_API_KEY;
+  const resendKey = await envValue("RESEND_API_KEY");
   if (!resendKey) {
     return NextResponse.json(
       { error: "RESEND_API_KEY is not configured on Cloudflare, so Deskcultr cannot send invite email yet." },
@@ -121,7 +134,7 @@ export async function POST(request: Request) {
 
   const link = `${appOrigin(request)}/register`;
 
-  const from = process.env.INVITE_FROM_EMAIL || "Deskcultr <onboarding@resend.dev>";
+  const from = (await envValue("INVITE_FROM_EMAIL")) || "Deskcultr <onboarding@resend.dev>";
   const emailResponse = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -138,11 +151,14 @@ export async function POST(request: Request) {
 
   if (!emailResponse.ok) {
     const details = await emailResponse.text();
-    return NextResponse.json({
-      invite: { ...invite, code: orgInvite.code, link, orgName: orgInvite.name, expiresAt: orgInvite.expiresAt },
-      emailSent: false,
-      warning: `Invite created, but email delivery failed: ${details}`,
-    });
+    return NextResponse.json(
+      {
+        error: `Resend rejected the invite email: ${details}`,
+        invite: { ...invite, code: orgInvite.code, link, orgName: orgInvite.name, expiresAt: orgInvite.expiresAt },
+        emailSent: false,
+      },
+      { status: 502 }
+    );
   }
 
   return NextResponse.json({ invite: { ...invite, code: orgInvite.code, link, orgName: orgInvite.name, expiresAt: orgInvite.expiresAt }, emailSent: true });

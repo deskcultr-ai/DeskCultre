@@ -264,6 +264,15 @@ export default function UsersAndTeamsPage() {
     const result = await response.json();
     setInviteBusy(false);
     if (!response.ok) {
+      if (result.invite) {
+        setCreatedInvite({
+          code: result.invite.code,
+          link: result.invite.link,
+          orgName: result.invite.orgName,
+          expiresAt: result.invite.expiresAt,
+        });
+        await load();
+      }
       setError(result.error ?? "Could not create invite.");
       return;
     }

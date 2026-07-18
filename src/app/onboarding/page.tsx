@@ -85,6 +85,7 @@ export default function OnboardingPage() {
   const [industrySector, setIndustrySector] = useState("Technology & SaaS");
 
   const [inviteCode, setInviteCode] = useState("");
+  const [inviteToken, setInviteToken] = useState("");
   const [testingRole, setTestingRole] = useState("member");
   const [availableDepartments, setAvailableDepartments] = useState<{ id: string; name: string }[]>([]);
   const [selectedDepartment, setSelectedDepartment] = useState<string>("");
@@ -149,6 +150,33 @@ export default function OnboardingPage() {
     const params = new URLSearchParams(window.location.search);
     const action = params.get("action");
     const userId = params.get("user_id");
+    const linkedInviteCode = params.get("invite_code");
+    const linkedInviteToken = params.get("invite_token");
+
+    if (linkedInviteCode && linkedInviteToken) {
+      const invite = {
+        code: linkedInviteCode.trim().toUpperCase(),
+        token: linkedInviteToken.trim(),
+      };
+      setInviteCode(invite.code);
+      setInviteToken(invite.token);
+      setStep("join");
+      window.localStorage.setItem("deskCulture.pendingInvite", JSON.stringify(invite));
+    } else {
+      const savedInvite = window.localStorage.getItem("deskCulture.pendingInvite");
+      if (savedInvite) {
+        try {
+          const parsed = JSON.parse(savedInvite) as { code?: string; token?: string };
+          if (parsed.code && parsed.token) {
+            setInviteCode(parsed.code.toUpperCase());
+            setInviteToken(parsed.token);
+            setStep("join");
+          }
+        } catch {
+          window.localStorage.removeItem("deskCulture.pendingInvite");
+        }
+      }
+    }
 
     if (action === "activate" && userId) {
       async function activate() {
@@ -264,12 +292,18 @@ export default function OnboardingPage() {
     setBusy(true);
     setError("");
 
-    // Pass target_department optionally if selected
-    const { error: rpcError } = await supabase.rpc("join_company_for_testing", {
-      code: inviteCode.trim().toUpperCase(),
-      target_role: testingRole,
-      target_department: selectedDepartment || null,
-    });
+    const trimmedCode = inviteCode.trim().toUpperCase();
+    const { error: rpcError } = inviteToken
+      ? await supabase.rpc("redeem_user_invite", {
+          invite_code: trimmedCode,
+          invite_token: inviteToken,
+          target_department: selectedDepartment || null,
+        })
+      : await supabase.rpc("join_company_for_testing", {
+          code: trimmedCode,
+          target_role: testingRole,
+          target_department: selectedDepartment || null,
+        });
 
     setBusy(false);
     if (rpcError) {
@@ -278,6 +312,7 @@ export default function OnboardingPage() {
     }
 
     // Refresh profile to trigger "waiting-approval" state display
+    window.localStorage.removeItem("deskCulture.pendingInvite");
     check();
   }
 
@@ -651,7 +686,7 @@ export default function OnboardingPage() {
                   </span>
                 )}
                 <span className="text-xs text-slate-400 mt-1 block leading-relaxed font-normal">
-                  Ask your workspace admin for this code — they can find it in Settings → Organization.
+                  {inviteToken ? "This code came from your Deskcultr invite email." : "Ask your workspace admin for this code."}
                 </span>
               </label>
 
@@ -683,12 +718,18 @@ export default function OnboardingPage() {
                   value={testingRole}
                   onChange={(e) => setTestingRole(e.target.value)}
                   className="mt-2 h-12 rounded-2xl"
+                  disabled={Boolean(inviteToken)}
                 >
-                  <option value="member">Employee — HR summary, tasks, meetings</option>
+                  <option value="member">{inviteToken ? "Assigned by invite — admin approval required" : "Employee — HR summary, tasks, meetings"}</option>
                   <option value="admin">Admin — Full settings, departments, user management</option>
                   <option value="manager">Department Manager — Scoped tasks &amp; team chats</option>
                   <option value="guest">Guest — Read-only file viewing</option>
                 </Select>
+                {inviteToken && (
+                  <span className="mt-1.5 block text-xs font-semibold text-slate-500">
+                    Your invited role is secured in the invite. The admin approves the final access after redemption.
+                  </span>
+                )}
               </label>
 
               <div className="flex gap-4 pt-6 border-t border-slate-100">
@@ -706,7 +747,7 @@ export default function OnboardingPage() {
                   className="flex-1 h-12 rounded-2xl font-bold bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center gap-1.5"
                   disabled={busy || !inviteCode.trim() || (availableDepartments.length > 0 && !selectedDepartment)}
                 >
-                  {busy ? "Joining..." : "Redeem Invite Code →"}
+                  {busy ? "Joining..." : inviteToken ? "Redeem Invite & Request Approval →" : "Redeem Invite Code →"}
                 </Button>
               </div>
             </form>

@@ -82,7 +82,7 @@ Authentication -> Email Templates -> Confirm signup
 Subject:
 
 ```text
-Welcome to Deskcultr - activate your account
+   Welcome to Deskcultr - activate your account
 ```
 
 Template source is stored locally at:
@@ -111,3 +111,25 @@ app during signup.
 7. User lands on onboarding.
 8. User creates an organization with `create_company` or joins one with
    `join_company_for_testing`.
+
+## Admin User Invites
+
+The Users & Teams page creates one-time invite records with:
+
+```text
+create_user_invite
+redeem_user_invite
+get_admin_users_data
+```
+
+For real outbound invite email from Cloudflare, configure these Worker
+variables/secrets:
+
+```text
+RESEND_API_KEY
+INVITE_FROM_EMAIL=Deskcultr <no-reply@your-domain.com>
+NEXT_PUBLIC_APP_URL=https://deskculture.deskcultr.workers.dev
+```
+
+Without `RESEND_API_KEY`, the invite is still created and the admin can see the
+redeem code/link in the modal, but the Worker cannot send the email.

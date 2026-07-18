@@ -101,11 +101,17 @@ function AuthCallbackContent() {
       if (cancelled) return;
 
       const next = searchParams.get("next");
+      const inviteCode = searchParams.get("invite_code");
+      const inviteToken = searchParams.get("invite_token");
       const redirectTo =
         next === "/account" || next === "/onboarding" ? next : await getPostAuthRedirect();
+      const withInvite =
+        redirectTo === "/onboarding" && inviteCode && inviteToken
+          ? `/onboarding?invite_code=${encodeURIComponent(inviteCode)}&invite_token=${encodeURIComponent(inviteToken)}`
+          : redirectTo;
 
       if (!cancelled) {
-        router.replace(redirectTo);
+        router.replace(withInvite);
       }
     }
 

@@ -204,12 +204,6 @@ export function AdminDataPage({ type }: { type: keyof typeof datasets }) {
       subtitle={dataset.subtitle}
       actions={
         <div className="hidden items-center gap-3 xl:flex">
-          <Button variant="ghost" className="border border-[#dfe4ef] bg-white text-[#253152] hover:bg-[#f7f8fd]">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-4 w-4">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v12m0 0 4-4m-4 4-4-4M4.5 21h15" />
-            </svg>
-            Export
-          </Button>
           <Button>
             {actionIcon}
             {dataset.primaryAction}

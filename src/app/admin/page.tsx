@@ -221,6 +221,12 @@ export default function AdminDashboardPage() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    ["/admin/users", "/admin/requests", "/admin/tasks", "/admin/departments", "/admin/meetings"].forEach((href) => {
+      router.prefetch(href);
+    });
+  }, [router]);
+
   const activityChart = useMemo(() => buildActivityPath(dashboard.organizationActivity), [dashboard.organizationActivity]);
   const filteredApprovals = dashboard.pendingApprovals.filter((item) => item.kind === approvalTab);
   const storagePct = dashboard.stats.storageLimit > 0 ? Math.min(100, Math.round((dashboard.stats.storageUsed / dashboard.stats.storageLimit) * 100)) : 0;
@@ -293,17 +299,23 @@ export default function AdminDashboardPage() {
                 ))}
               </div>
             </div>
-            <div className="mt-5 h-[260px] overflow-hidden sm:h-[300px]">
-              <svg viewBox="0 0 760 230" className="h-full w-full">
+            <div className="chart-3d-frame mt-5 h-[260px] overflow-hidden sm:h-[300px]">
+              <svg viewBox="0 0 760 230" className="chart-3d-plane h-full w-full">
                 {[28, 76, 124, 172, 220].map((y) => (
                   <line key={y} x1="44" y1={y} x2="716" y2={y} stroke="#e8edf7" strokeDasharray="3 5" />
                 ))}
                 <path d={activityChart.area} fill="url(#activityFill)" />
-                <path d={activityChart.line} fill="none" stroke="#4338ca" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+                <path d={activityChart.line} fill="none" stroke="#a5b4fc" strokeWidth="10" strokeLinecap="round" strokeLinejoin="round" opacity="0.22" />
+                <path className="chart-3d-line" d={activityChart.line} fill="none" stroke="url(#activityStroke)" strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round" />
                 <defs>
                   <linearGradient id="activityFill" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stopColor="#6366f1" stopOpacity="0.22" />
+                    <stop offset="0%" stopColor="#6366f1" stopOpacity="0.3" />
                     <stop offset="100%" stopColor="#6366f1" stopOpacity="0" />
+                  </linearGradient>
+                  <linearGradient id="activityStroke" x1="0" x2="1" y1="0" y2="0">
+                    <stop offset="0%" stopColor="#312e81" />
+                    <stop offset="52%" stopColor="#4f46e5" />
+                    <stop offset="100%" stopColor="#7c3aed" />
                   </linearGradient>
                 </defs>
                 {activityChart.points.map((point) => (
@@ -327,8 +339,8 @@ export default function AdminDashboardPage() {
               <button onClick={() => router.push("/admin/departments")} className="rounded-lg border border-[#dfe4ef] px-3 py-1.5 text-xs font-bold text-[#4b587d]">Open</button>
             </div>
             <div className="mt-5 grid gap-5 md:grid-cols-[150px_1fr] xl:grid-cols-1">
-              <div className="relative mx-auto grid h-[150px] w-[150px] place-items-center rounded-full" style={{ background: distributionGradient(dashboard.departmentDistribution) }}>
-                <div className="grid h-[104px] w-[104px] place-items-center rounded-full bg-white text-center shadow-inner">
+              <div className="pie-3d relative mx-auto grid h-[150px] w-[150px] place-items-center rounded-full" style={{ background: distributionGradient(dashboard.departmentDistribution) }}>
+                <div className="z-10 grid h-[104px] w-[104px] place-items-center rounded-full bg-white text-center shadow-[inset_0_8px_18px_rgba(15,23,42,0.08),0_8px_20px_rgba(255,255,255,0.9)]">
                   <div>
                     <p className="text-[26px] font-black leading-none text-[#071035]">{dashboard.stats.departments}</p>
                     <p className="mt-1 text-[11px] font-bold text-[#637091]">Departments</p>

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getPostAuthRedirect } from "@/lib/auth-redirect";
 import { supabase } from "@/lib/supabase";
 
@@ -29,6 +29,29 @@ export default function AuthPanel({ initialMode = "login" }: AuthPanelProps) {
   const [phone, setPhone] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showCheckEmail, setShowCheckEmail] = useState(false);
+  const [pendingInvite, setPendingInvite] = useState<{ code: string; token: string } | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("invite_code");
+    const token = params.get("invite_token");
+    if (code && token) {
+      const invite = { code: code.trim().toUpperCase(), token: token.trim() };
+      setPendingInvite(invite);
+      setMode("register");
+      window.localStorage.setItem("deskCulture.pendingInvite", JSON.stringify(invite));
+    }
+  }, []);
+
+  const callbackUrl = useMemo(() => {
+    if (typeof window === "undefined") return "/auth/callback?next=/onboarding";
+    const params = new URLSearchParams({ next: "/onboarding" });
+    if (pendingInvite) {
+      params.set("invite_code", pendingInvite.code);
+      params.set("invite_token", pendingInvite.token);
+    }
+    return `${window.location.origin}/auth/callback?${params.toString()}`;
+  }, [pendingInvite]);
 
   function switchMode(next: AuthMode) {
     setMode(next);
@@ -65,7 +88,7 @@ export default function AuthPanel({ initialMode = "login" }: AuthPanelProps) {
     const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: callbackUrl,
       },
     });
 
@@ -88,7 +111,7 @@ export default function AuthPanel({ initialMode = "login" }: AuthPanelProps) {
         setError("Unable to sign in. Check your email and password.");
         return;
       }
-      router.replace(await getPostAuthRedirect());
+      router.replace(pendingInvite ? `/onboarding?invite_code=${encodeURIComponent(pendingInvite.code)}&invite_token=${encodeURIComponent(pendingInvite.token)}` : await getPostAuthRedirect());
       return;
     }
 
@@ -113,12 +136,13 @@ export default function AuthPanel({ initialMode = "login" }: AuthPanelProps) {
       email: email.trim(),
       password,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback?next=/onboarding`,
+        emailRedirectTo: callbackUrl,
         data: {
           registration_type: "workspace_join_request",
           first_name: firstName.trim(),
           last_name: lastName.trim(),
           phone_number: normalizedPhone,
+          invite_code: pendingInvite?.code,
         },
       },
     });
@@ -141,7 +165,7 @@ export default function AuthPanel({ initialMode = "login" }: AuthPanelProps) {
 
     // If user is immediately active (e.g. email confirmation disabled), redirect now.
     if (data.session) {
-      router.replace(await getPostAuthRedirect());
+      router.replace(pendingInvite ? `/onboarding?invite_code=${encodeURIComponent(pendingInvite.code)}&invite_token=${encodeURIComponent(pendingInvite.token)}` : await getPostAuthRedirect());
     }
   }
 
@@ -201,12 +225,14 @@ export default function AuthPanel({ initialMode = "login" }: AuthPanelProps) {
       </div>
 
       <h1 className="mt-7 text-2xl font-extrabold tracking-tight text-slate-950">
-        {mode === "login" ? "Welcome back" : "Request workspace access"}
+        {mode === "login" ? "Welcome back" : pendingInvite ? "Join your organization" : "Request workspace access"}
       </h1>
       <p className="mt-2 text-sm text-slate-600">
         {mode === "login"
           ? "Sign in to your DeskCulture workspace."
-          : "Register with any email. An admin assigns your workspace role and permissions."}
+          : pendingInvite
+            ? "Create your account with the invited email, then redeem your code on the setup screen."
+            : "Register with any email. An admin assigns your workspace role and permissions."}
       </p>
 
       <button

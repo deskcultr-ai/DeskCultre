@@ -29,6 +29,10 @@ const ICONS = {
   video: "m15.75 10.5 4.72-2.36a.75.75 0 0 1 1.03.67v9.38a.75.75 0 0 1-1.03.67l-4.72-2.36M4.5 6.75h9a1.5 1.5 0 0 1 1.5 1.5v7.5a1.5 1.5 0 0 1-1.5 1.5h-9a1.5 1.5 0 0 1-1.5-1.5v-7.5a1.5 1.5 0 0 1 1.5-1.5Z",
   calendar: "M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0V11.25A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5",
   folder: "M3 7h5l2 2h11v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z",
+  file: "M9 12h6m-6 4h6m2 5H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6l6 6v10a2 2 0 0 1-2 2ZM13 3v6h6",
+  paperPlane: "M6 12 3.269 3.125A59.77 59.77 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L6 12Zm0 0h7.5",
+  megaphone: "M10.34 15.84 9.2 19.25a1.5 1.5 0 0 1-2.85-.08L5.63 16.5M19.5 12c0 2.6.56 5.06 1.57 7.29.13.29-.08.62-.4.62H19.5a7.5 7.5 0 0 1-7.5-7.5v-.82a7.5 7.5 0 0 1 7.5-7.5h1.17c.32 0 .53.33.4.62A17.9 17.9 0 0 0 19.5 12ZM12 12H4.5a2 2 0 0 0 0 4H12",
+  link: "M13.19 8.688a4.5 4.5 0 0 1 6.363 6.364l-1.768 1.767a4.5 4.5 0 0 1-6.364 0M10.81 15.312a4.5 4.5 0 0 1-6.363-6.364L6.215 7.18a4.5 4.5 0 0 1 6.364 0",
   chat: "M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 0 1-.825-.242m9.345-8.334a2.126 2.126 0 0 0-.476-.095 48.64 48.64 0 0 0-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0 0 11.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155",
   chart: "M3 3v16.5A1.5 1.5 0 0 0 4.5 21H21M7.5 15.75V12M12 15.75V8.25M16.5 15.75v-4.5M21 15.75V6",
   clock: "M12 6.75V12l3 1.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z",
@@ -67,21 +71,41 @@ const adminNav: NavGroup[] = [
       { label: "Users & Teams", href: "/admin/users", icon: icon(ICONS.users) },
       { label: "Departments", href: "/admin/departments", icon: icon(ICONS.building) },
       { label: "Roles & Permissions", href: "/admin/roles", icon: icon(ICONS.shield) },
+      { label: "Workspaces", href: "/admin/workspaces", icon: icon(ICONS.grid) },
     ],
   },
   {
     heading: "Workplace",
     items: [
-      { label: "Tasks & Requests", href: "/tasks", icon: icon(ICONS.check) },
+      { label: "Tasks", href: "/admin/tasks", icon: icon(ICONS.check) },
+      { label: "Requests", href: "/admin/requests", icon: icon(ICONS.inbox) },
+      { label: "Projects", href: "/admin/projects", icon: icon(ICONS.folder) },
       { label: "Meetings", href: "/admin/meetings", icon: icon(ICONS.video) },
-      { label: "Announcements", href: "/admin/announcements", icon: icon(ICONS.chat) },
+      { label: "Calendar", href: "/admin/calendar", icon: icon(ICONS.calendar) },
+      { label: "Announcements", href: "/admin/announcements", icon: icon(ICONS.megaphone) },
+      { label: "Chat", href: "/admin/chat", icon: icon(ICONS.chat) },
     ],
   },
   {
-    heading: "Insights",
+    heading: "Resources",
     items: [
-      { label: "Audit Logs", href: "/admin/audit", icon: icon(ICONS.logs) },
+      { label: "Drive", href: "/admin/drive", icon: icon(ICONS.folder) },
+      { label: "Knowledge Base", href: "/admin/kb", icon: icon(ICONS.book) },
+    ],
+  },
+  {
+    heading: "Analytics",
+    items: [
+      { label: "Reports", href: "/admin/reports", icon: icon(ICONS.file) },
+      { label: "Analytics", href: "/admin/analytics", icon: icon(ICONS.chart) },
+    ],
+  },
+  {
+    heading: "System",
+    items: [
       { label: "Settings", href: "/admin/settings", icon: icon(ICONS.gear) },
+      { label: "Integrations", href: "/admin/integrations", icon: icon(ICONS.link) },
+      { label: "Audit Logs", href: "/admin/audit", icon: icon(ICONS.logs) },
     ],
   },
 ];
@@ -105,53 +129,68 @@ export function AppShell({
   const router = useRouter();
   const groups = variant === "admin" ? adminNav : employeeNav;
 
-  // Sync dark mode class from localStorage
   useEffect(() => {
+    if (variant === "admin") {
+      document.documentElement.classList.remove("dark");
+      return;
+    }
     const savedTheme = localStorage.getItem("deskCulture.theme") || "light";
     if (savedTheme === "dark") {
       document.documentElement.classList.add("dark");
     } else {
       document.documentElement.classList.remove("dark");
     }
-  }, []);
+  }, [variant]);
 
   async function signOut() {
     await supabase.auth.signOut();
     router.replace("/");
   }
 
+  const isAdminShell = variant === "admin";
+
   return (
-    <div className="flex min-h-screen bg-[#f8fafc] dark:bg-slate-950 dark:text-slate-100 transition-colors duration-200">
+    <div className={cn("flex min-h-screen transition-colors duration-200", isAdminShell ? "bg-[#f8faff] text-[#0f1740]" : "bg-[#f8fafc] dark:bg-slate-950 dark:text-slate-100")}>
       {/* Sidebar */}
-      <aside className="hidden w-64 shrink-0 flex-col border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 lg:flex">
+      <aside
+        className={cn(
+          "hidden shrink-0 flex-col border-r lg:flex",
+          isAdminShell ? "w-[264px] border-[#e7ebf5] bg-white" : "w-64 border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
+        )}
+      >
         <Link href="/" className="flex items-center gap-3 px-6 py-5">
-          <div className="grid h-9 w-9 place-items-center rounded-[10px] bg-gradient-to-br from-primary to-violet-500 text-sm font-bold text-white">
-            DC
+          <div className="grid h-9 w-9 place-items-center rounded-lg bg-gradient-to-br from-primary to-violet-500 text-sm font-bold text-white">
+            {isAdminShell ? "DC" : "DC"}
           </div>
-          <span className="text-lg font-extrabold tracking-tight text-slate-900 dark:text-white">DeskCulture</span>
+          <span className={cn("text-lg font-extrabold tracking-tight", isAdminShell ? "text-[#101936]" : "text-slate-900 dark:text-white")}>DeskCulture</span>
         </Link>
 
-        <nav className="flex-1 overflow-y-auto px-3 pb-4">
+        <nav className={cn("flex-1 overflow-y-auto px-3", isAdminShell ? "pb-3" : "pb-4")}>
           {groups.map((group, groupIndex) => (
-            <div key={group.heading ?? groupIndex} className="mb-4">
+            <div key={group.heading ?? groupIndex} className={cn(isAdminShell ? "mb-5" : "mb-4")}>
               {group.heading && (
-                <p className="px-3 pb-2 pt-3 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                <p className={cn("px-3 pb-2 text-[11px] font-bold uppercase tracking-wider", isAdminShell ? "pt-2 text-[#7180a6]" : "pt-3 text-slate-400 dark:text-slate-500")}>
                   {group.heading}
                 </p>
               )}
               <ul className="space-y-1">
                 {group.items.map((item) => {
-                  const active = item.href && pathname === item.href;
+                  const active = item.href && (pathname === item.href || (item.href !== "/admin" && pathname.startsWith(`${item.href}/`)));
                   return (
                     <li key={item.label}>
                       {item.href ? (
                         <Link
                           href={item.href}
                           className={cn(
-                            "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition",
+                            "flex items-center gap-3 rounded-lg px-3 text-sm font-medium transition",
+                            isAdminShell ? "py-2.5" : "py-2",
                             active
-                              ? "bg-primary-light text-primary dark:bg-indigo-950/60 dark:text-indigo-300"
-                              : "text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/40 hover:text-slate-900 dark:hover:text-white"
+                              ? isAdminShell
+                                ? "bg-[#f0edff] text-primary"
+                                : "bg-primary-light text-primary dark:bg-indigo-950/60 dark:text-indigo-300"
+                              : isAdminShell
+                                ? "text-[#4b587d] hover:bg-[#f6f7fb] hover:text-primary"
+                                : "text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/40 hover:text-slate-900 dark:hover:text-white"
                           )}
                         >
                           {item.icon}
@@ -175,17 +214,31 @@ export function AppShell({
           ))}
         </nav>
 
-        <div className="border-t border-slate-200 dark:border-slate-800 p-4">
-          <div className="flex items-center gap-3">
+        <div className={cn("p-4", isAdminShell ? "border-t border-[#eef1f7]" : "border-t border-slate-200 dark:border-slate-800")}>
+          {isAdminShell && (
+            <div className="mb-4 rounded-lg border border-[#e6e9f4] bg-[#f7f8ff] p-4">
+              <div className="flex items-center gap-3">
+                <span className="grid h-9 w-9 place-items-center rounded-lg bg-primary-light text-primary">{icon(ICONS.chat)}</span>
+                <div>
+                  <p className="text-sm font-bold text-[#101936]">Need Help?</p>
+                  <p className="text-xs text-[#637091]">Chat with our support team</p>
+                </div>
+              </div>
+            </div>
+          )}
+          <div className={cn("flex items-center gap-3", isAdminShell && "hidden")}>
             <Avatar name={displayName(profile)} src={profile?.avatar_url ?? undefined} size="md" />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-bold text-slate-900 dark:text-white">{profile?.full_name || displayName(profile)}</p>
-              <p className="truncate text-xs capitalize text-slate-500 dark:text-slate-400">{profile?.role.replace("_", " ")}</p>
+              <p className="truncate text-xs capitalize text-slate-500 dark:text-slate-400">{profile?.role?.replace("_", " ")}</p>
             </div>
           </div>
           <button
             onClick={signOut}
-            className="mt-3 w-full rounded-lg border border-slate-200 dark:border-slate-800 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 transition hover:bg-slate-50 dark:hover:bg-slate-800"
+            className={cn(
+              "w-full rounded-lg border py-2 text-xs font-semibold transition",
+              isAdminShell ? "border-[#e6e9f4] text-[#637091] hover:bg-[#f6f7fb]" : "mt-3 border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800"
+            )}
           >
             Sign out
           </button>
@@ -194,15 +247,54 @@ export function AppShell({
 
       {/* Main */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-20 flex items-center gap-4 border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 px-6 py-4 backdrop-blur-xl">
+        <header
+          className={cn(
+            "sticky top-0 z-20 flex items-center gap-4 border-b px-6 py-4 backdrop-blur-xl",
+            isAdminShell ? "border-[#e6eaf3] bg-white/90" : "border-slate-200 bg-white/80 dark:border-slate-800 dark:bg-slate-900/80"
+          )}
+        >
+          {isAdminShell && (
+            <button aria-label="Open navigation" className="grid h-9 w-9 place-items-center rounded-lg text-[#24304f] hover:bg-[#f3f5fb]">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7h16M4 12h16M4 17h16" />
+              </svg>
+            </button>
+          )}
           <div className="min-w-0 flex-1">
-            <h1 className="truncate text-h3 text-slate-900 dark:text-white">{title}</h1>
-            {subtitle && <p className="truncate text-sm text-slate-500 dark:text-slate-400">{subtitle}</p>}
+            <h1 className={cn("truncate text-h3", isAdminShell ? "text-[#101936]" : "text-slate-900 dark:text-white")}>{title}</h1>
+            {subtitle && <p className={cn("truncate text-sm", isAdminShell ? "text-[#637091]" : "text-slate-500 dark:text-slate-400")}>{subtitle}</p>}
           </div>
           {actions}
+          {isAdminShell && (
+            <>
+              <div className="hidden h-11 w-[360px] max-w-[28vw] items-center gap-3 rounded-lg border border-[#e3e7f2] bg-[#f9faff] px-4 lg:flex">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5 text-[#4b587d]">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m21 21-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z" />
+                </svg>
+                <input className="min-w-0 flex-1 bg-transparent text-sm text-[#24304f] outline-none placeholder:text-[#7180a6]" placeholder="Search anything..." />
+                <span className="rounded-md border border-[#dfe4ef] bg-white px-2 py-1 text-[11px] font-semibold text-[#7180a6]">Ctrl + K</span>
+              </div>
+              <button aria-label="Notifications" className="relative grid h-10 w-10 place-items-center rounded-lg text-[#18213d] hover:bg-[#f3f5fb]">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.86 17.08a2.25 2.25 0 0 1-5.72 0M18 8a6 6 0 1 0-12 0c0 7-3 7-3 7h18s-3 0-3-7Z" />
+                </svg>
+                <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-red-500 px-1 text-[10px] font-black text-white">12</span>
+              </button>
+              <div className="hidden items-center gap-3 lg:flex">
+                <Avatar name={displayName(profile)} src={profile?.avatar_url ?? undefined} size="lg" />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-bold text-[#101936]">{profile?.full_name || "Admin User"}</p>
+                  <p className="truncate text-xs capitalize text-[#637091]">{profile?.role?.replace("_", " ") || "Super Admin"}</p>
+                </div>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-4 w-4 text-[#637091]">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m6 9 6 6 6-6" />
+                </svg>
+              </div>
+            </>
+          )}
         </header>
 
-        <main className="flex-1 p-6 overflow-y-auto">{children}</main>
+        <main className={cn("flex-1 overflow-y-auto", isAdminShell ? "p-6" : "p-6")}>{children}</main>
       </div>
     </div>
   );

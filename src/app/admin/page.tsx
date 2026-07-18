@@ -202,6 +202,18 @@ export default function AdminDashboardPage() {
       title="Admin Dashboard"
       subtitle="Welcome back, Admin! Here's what's happening in DeskCulture."
     >
+      <div className="mb-4 flex justify-end">
+        <button className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#dfe4ef] bg-white px-4 text-sm font-semibold text-[#253152] shadow-ds-sm">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-4 w-4">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25A2.25 2.25 0 0 1 18.75 21H5.25A2.25 2.25 0 0 1 3 18.75ZM3 11.25h18" />
+          </svg>
+          May 12 - May 18, 2024
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-4 w-4 text-[#7180a6]">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m6 9 6 6 6-6" />
+          </svg>
+        </button>
+      </div>
+
       {/* ── Grid Row 1: Premium Stat Cards ── */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {/* Employees */}
@@ -651,7 +663,7 @@ export default function AdminDashboardPage() {
 
             {/* Create Task */}
             <button
-              onClick={() => router.push("/tasks")}
+              onClick={() => router.push("/admin/tasks")}
               className="flex flex-col items-center group cursor-pointer"
             >
               <div className="h-10 w-10 rounded-xl bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-white hover:bg-indigo-500 hover:text-white transition duration-200 flex items-center justify-center shadow-sm">
@@ -666,7 +678,7 @@ export default function AdminDashboardPage() {
 
             {/* Create Request */}
             <button
-              onClick={() => router.push("/attendance/requests")}
+              onClick={() => router.push("/admin/requests")}
               className="flex flex-col items-center group cursor-pointer"
             >
               <div className="h-10 w-10 rounded-xl bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-white hover:bg-indigo-500 hover:text-white transition duration-200 flex items-center justify-center shadow-sm">
@@ -690,7 +702,7 @@ export default function AdminDashboardPage() {
                 </svg>
               </div>
               <span className="text-[10px] font-bold text-slate-500 group-hover:text-indigo-600 transition mt-2">
-                Schedule Call
+                Schedule Meeting
               </span>
             </button>
 

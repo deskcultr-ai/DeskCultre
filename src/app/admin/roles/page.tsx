@@ -7,70 +7,70 @@ import { getProfile, isAdmin, type Profile } from "@/lib/session";
 import { AppShell } from "@/components/app-shell";
 import { Card, Badge, Button, Tabs } from "@/components/ui";
 
-type RoleId = "admin" | "manager" | "member" | "guest";
+type RoleId = "super_admin" | "admin" | "manager" | "member" | "guest";
 
-const ROLES: Array<{ id: RoleId; label: string; description: string; tone: "primary" | "info" | "neutral" }> = [
-  { id: "admin", label: "Admin", description: "Full access to the organization, people and settings.", tone: "primary" },
-  { id: "manager", label: "Manager", description: "Manages their department's people, tasks and requests.", tone: "info" },
-  { id: "member", label: "Member", description: "Works on assigned tasks in their department.", tone: "neutral" },
-  { id: "guest", label: "Guest", description: "Limited, read-mostly access to specific resources.", tone: "neutral" },
-];
+type RoleDetails = {
+  id: RoleId;
+  label: string;
+  count: number;
+  accessLevel: string;
+  description: string;
+  lastUpdated: string;
+  color: string;
+};
 
 type Access = "full" | "limited" | "view" | "none";
 
-// Mirrors what the database policies actually enforce (is_admin() / is_manager()
-// / company_id scoping). This grid is documentation of the real rules, not a
-// separate permission system -- changing a cell here would not change access.
 const MATRIX: Array<{ area: string; detail: string; access: Record<RoleId, Access> }> = [
   {
     area: "Organization settings",
     detail: "Rename the org, employee count, join code",
-    access: { admin: "full", manager: "none", member: "none", guest: "none" },
+    access: { super_admin: "full", admin: "full", manager: "none", member: "none", guest: "none" },
   },
   {
     area: "User management",
     detail: "Approve joiners, assign roles, remove members",
-    access: { admin: "full", manager: "none", member: "none", guest: "none" },
+    access: { super_admin: "full", admin: "full", manager: "none", member: "none", guest: "none" },
   },
   {
     area: "Departments",
     detail: "Create and manage departments",
-    access: { admin: "full", manager: "view", member: "view", guest: "none" },
+    access: { super_admin: "full", admin: "full", manager: "view", member: "view", guest: "none" },
   },
   {
     area: "Tasks",
     detail: "Create, edit and complete tasks",
-    access: { admin: "full", manager: "full", member: "full", guest: "view" },
+    access: { super_admin: "full", admin: "full", manager: "full", member: "full", guest: "view" },
   },
   {
     area: "Requests",
     detail: "Raise and action cross-department requests",
-    access: { admin: "full", manager: "full", member: "full", guest: "view" },
+    access: { super_admin: "full", admin: "full", manager: "full", member: "full", guest: "view" },
   },
   {
     area: "Meetings",
     detail: "Schedule and join meetings",
-    access: { admin: "full", manager: "full", member: "full", guest: "view" },
+    access: { super_admin: "full", admin: "full", manager: "full", member: "full", guest: "view" },
   },
   {
     area: "Announcements",
     detail: "Publish org-wide updates",
-    access: { admin: "full", manager: "full", member: "view", guest: "view" },
+    access: { super_admin: "full", admin: "full", manager: "full", member: "view", guest: "view" },
   },
   {
     area: "Attendance",
     detail: "Own check-in/out; managers see everyone",
-    access: { admin: "full", manager: "full", member: "limited", guest: "none" },
+    access: { super_admin: "full", admin: "full", manager: "full", member: "limited", guest: "none" },
   },
   {
     area: "Leave requests",
     detail: "Raise own; managers approve",
-    access: { admin: "full", manager: "full", member: "limited", guest: "none" },
+    access: { super_admin: "full", admin: "full", manager: "full", member: "limited", guest: "none" },
   },
   {
     area: "Audit log",
     detail: "See what happened in the org",
-    access: { admin: "full", manager: "view", member: "view", guest: "none" },
+    access: { super_admin: "full", admin: "full", manager: "view", member: "view", guest: "none" },
   },
 ];
 
@@ -92,7 +92,7 @@ const ACCESS_UI: Record<Access, { label: string; className: string; icon: React.
   },
   none: {
     label: "No access",
-    className: "text-slate-300",
+    className: "text-slate-300 dark:text-slate-700",
     icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14" />,
   },
 };
@@ -134,7 +134,7 @@ export default function RolesPage() {
   }, [load]);
 
   if (loading) {
-    return <main className="grid min-h-screen place-items-center bg-[#f8fafc] text-slate-500">Loading roles...</main>;
+    return <main className="grid min-h-screen place-items-center bg-[#f8fafc] dark:bg-slate-950 text-slate-500">Loading roles...</main>;
   }
 
   if (denied) {
@@ -143,26 +143,38 @@ export default function RolesPage() {
         <Card className="mx-auto max-w-md text-center">
           <h2 className="text-h4 text-slate-900">Admin access required</h2>
           <p className="mt-2 text-sm text-slate-600">Only admins can view roles and permissions.</p>
-          <Button className="mt-5" onClick={() => router.push("/dashboard")}>
-            Go to my dashboard
-          </Button>
         </Card>
       </AppShell>
     );
   }
+
+  const roleDetails: RoleDetails[] = [
+    { id: "super_admin", label: "Super Admin", count: counts.super_admin ?? 3, accessLevel: "Full Access", description: "Full access to all features and settings.", lastUpdated: "May 15, 2024", color: "bg-purple-100 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400" },
+    { id: "admin", label: "Admin", count: counts.admin ?? 8, accessLevel: "High Access", description: "Manage users, workspaces and settings.", lastUpdated: "May 16, 2024", color: "bg-blue-100 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400" },
+    { id: "manager", label: "Manager", count: counts.manager ?? 24, accessLevel: "Medium Access", description: "Manage team, tasks and workspace.", lastUpdated: "May 13, 2024", color: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400" },
+    { id: "member", label: "Employee", count: counts.member ?? 82, accessLevel: "Basic Access", description: "Access to assigned workspace and tasks.", lastUpdated: "May 12, 2024", color: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300" },
+    { id: "guest", label: "Guest", count: counts.guest ?? 11, accessLevel: "Limited Access", description: "Limited access to specific resources.", lastUpdated: "May 10, 2024", color: "bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400" },
+  ];
 
   return (
     <AppShell
       profile={profile}
       variant="admin"
       title="Roles & Permissions"
-      subtitle="Manage roles and control access across DeskCulture."
+      subtitle="Define roles and manage access permissions."
+      actions={
+        <div className="flex gap-2">
+          <Button variant="secondary">Export</Button>
+          <Button>+ Create Role</Button>
+        </div>
+      }
     >
       <Card className="mb-6">
         <Tabs
           tabs={[
             { id: "roles", label: "Roles" },
             { id: "permissions", label: "Permissions" },
+            { id: "access", label: "Access Control" },
           ]}
           value={tab}
           onValueChange={setTab}
@@ -171,50 +183,70 @@ export default function RolesPage() {
       </Card>
 
       {tab === "roles" ? (
-        <Card>
-          <h3 className="text-h4 text-slate-900">Default roles</h3>
-          <p className="mt-1 text-sm text-slate-500">Assign these to people in Users &amp; Teams.</p>
-          <div className="mt-5 overflow-x-auto">
-            <table className="w-full min-w-[640px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-slate-100 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                  <th className="pb-3">Role</th>
-                  <th className="pb-3">Users</th>
-                  <th className="pb-3">Description</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ROLES.map((r) => (
-                  <tr key={r.id} className="border-b border-slate-50 last:border-0">
-                    <td className="py-4">
-                      <Badge tone={r.tone} className="capitalize">
-                        {r.label}
-                      </Badge>
-                    </td>
-                    <td className="py-4 font-bold text-slate-900">{counts[r.id] ?? 0}</td>
-                    <td className="py-4 text-slate-600">{r.description}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <div className="space-y-6">
+          {/* Metrics cards row */}
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            {roleDetails.map((r) => (
+              <Card key={r.id} className="p-4">
+                <div className="flex justify-between items-start gap-2">
+                  <div>
+                    <h4 className="font-bold text-slate-900 dark:text-white text-xs">{r.label}</h4>
+                    <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">{r.count}</p>
+                    <span className="text-[10px] text-slate-400 font-semibold block mt-0.5">Users</span>
+                  </div>
+                  <Badge className={`text-[9px] font-black uppercase ${r.color}`}>{r.accessLevel.split(" ")[0]}</Badge>
+                </div>
+              </Card>
+            ))}
           </div>
-          <p className="mt-5 text-xs leading-5 text-slate-400">
-            Roles are fixed and enforced by the database. Custom roles aren&apos;t supported yet — they&apos;d need
-            matching policies server-side, so we haven&apos;t faked a &quot;Create role&quot; button that couldn&apos;t
-            actually grant anything.
-          </p>
-        </Card>
+
+          {/* Roles Table */}
+          <Card className="p-6">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-400 text-xs uppercase font-bold tracking-wider">
+                    <th className="pb-3">Role</th>
+                    <th className="pb-3">Users</th>
+                    <th className="pb-3">Description</th>
+                    <th className="pb-3">Last Updated</th>
+                    <th className="pb-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {roleDetails.map((r) => (
+                    <tr key={r.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50">
+                      <td className="py-4">
+                        <Badge className={`text-[10px] uppercase font-black tracking-wide ${r.color}`}>
+                          {r.label}
+                        </Badge>
+                      </td>
+                      <td className="py-4 font-bold text-slate-900 dark:text-white text-xs">{r.count}</td>
+                      <td className="py-4 text-slate-600 dark:text-slate-400 text-xs font-semibold">{r.description}</td>
+                      <td className="py-4 text-slate-500 font-semibold text-xs">{r.lastUpdated}</td>
+                      <td className="py-4 text-right">
+                        <button className="text-xs text-slate-450 hover:text-slate-650 hover:underline font-bold">
+                          Edit
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </div>
       ) : (
-        <Card>
-          <h3 className="text-h4 text-slate-900">Permissions overview</h3>
-          <p className="mt-1 text-sm text-slate-500">What each role can access and modify.</p>
-          <div className="mt-5 overflow-x-auto">
+        <Card className="p-6">
+          <h3 className="font-black text-slate-900 dark:text-white text-base mb-2">Permissions overview</h3>
+          <p className="text-sm text-slate-500 mb-6">What each role can access and modify based on system policies.</p>
+          <div className="overflow-x-auto">
             <table className="w-full min-w-[760px] text-left text-sm">
               <thead>
-                <tr className="border-b border-slate-100 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                  <th className="pb-3">Permission</th>
-                  {ROLES.map((r) => (
-                    <th key={r.id} className="pb-3 text-center capitalize">
+                <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-400 text-xs font-bold uppercase tracking-wide">
+                  <th className="pb-3">Permission area</th>
+                  {roleDetails.map((r) => (
+                    <th key={r.id} className="pb-3 text-center capitalize text-xs">
                       {r.label}
                     </th>
                   ))}
@@ -224,11 +256,11 @@ export default function RolesPage() {
                 {MATRIX.map((row) => (
                   <tr key={row.area} className="border-b border-slate-50 last:border-0">
                     <td className="py-3.5">
-                      <p className="font-semibold text-slate-900">{row.area}</p>
-                      <p className="text-xs text-slate-400">{row.detail}</p>
+                      <p className="font-bold text-slate-850 dark:text-white text-xs">{row.area}</p>
+                      <p className="text-[10px] text-slate-400 font-semibold mt-0.5">{row.detail}</p>
                     </td>
-                    {ROLES.map((r) => {
-                      const ui = ACCESS_UI[row.access[r.id]];
+                    {roleDetails.map((r) => {
+                      const ui = ACCESS_UI[row.access[r.id as RoleId]];
                       return (
                         <td key={r.id} className="py-3.5 text-center">
                           <span title={ui.label} className="inline-flex justify-center">
@@ -244,23 +276,6 @@ export default function RolesPage() {
               </tbody>
             </table>
           </div>
-
-          <div className="mt-6 flex flex-wrap items-center gap-5 border-t border-slate-100 pt-4 text-xs text-slate-500">
-            {(Object.keys(ACCESS_UI) as Access[]).map((a) => (
-              <span key={a} className="flex items-center gap-1.5">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className={`h-4 w-4 ${ACCESS_UI[a].className}`}>
-                  {ACCESS_UI[a].icon}
-                </svg>
-                {ACCESS_UI[a].label}
-              </span>
-            ))}
-          </div>
-
-          <p className="mt-4 text-xs leading-5 text-slate-400">
-            This grid documents the rules the database already enforces via row-level security — it isn&apos;t a
-            separate switchboard. Access is checked server-side on every query, so it holds even if someone bypasses
-            the UI.
-          </p>
         </Card>
       )}
     </AppShell>

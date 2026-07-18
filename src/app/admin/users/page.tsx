@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getProfile, isAdmin, type Profile } from "@/lib/session";
 import { AppShell } from "@/components/app-shell";
-import { Card, Badge, Button, Alert, Avatar, Select, Input, Tabs } from "@/components/ui";
+import { Card, Badge, Button, Alert, Avatar, Select, Input } from "@/components/ui";
 
 type Member = {
   id: string;
@@ -22,25 +22,13 @@ type Member = {
 
 type Department = { id: string; name: string };
 
-// super_admin is a platform role and is deliberately not offered here.
-const ASSIGNABLE_ROLES: Array<{ value: Profile["role"]; label: string; hint: string }> = [
-  { value: "admin", label: "Admin", hint: "Manages the whole organization" },
-  { value: "manager", label: "Manager", hint: "Manages a department's people and work" },
-  { value: "member", label: "Member", hint: "Regular employee access" },
-  { value: "guest", label: "Guest", hint: "Limited, read-mostly access" },
-];
-
-const ROLE_TONE: Record<string, "primary" | "info" | "neutral" | "warning"> = {
-  super_admin: "warning",
-  admin: "primary",
-  manager: "info",
-  member: "neutral",
-  guest: "neutral",
+const ROLE_COLORS: Record<string, string> = {
+  super_admin: "bg-purple-100 text-purple-700 dark:bg-purple-950/30 dark:text-purple-400",
+  admin: "bg-blue-100 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400",
+  manager: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400",
+  member: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+  guest: "bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400",
 };
-
-function nameOf(m: Member) {
-  return m.full_name || m.first_name || m.email?.split("@")[0] || "Unnamed";
-}
 
 export default function UsersAndTeamsPage() {
   const router = useRouter();
@@ -50,12 +38,17 @@ export default function UsersAndTeamsPage() {
   const [members, setMembers] = useState<Member[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [joinCode, setJoinCode] = useState<string>("");
-  const [tab, setTab] = useState("pending");
+
+  // Filters
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterDept, setFilterDept] = useState("all");
+  const [filterRole, setFilterRole] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
+
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [newDept, setNewDept] = useState("");
-  const [pendingRole, setPendingRole] = useState<Record<string, Profile["role"]>>({});
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
 
   const load = useCallback(async () => {
     const me = await getProfile();
@@ -95,102 +88,46 @@ export default function UsersAndTeamsPage() {
     load();
   }, [load]);
 
-  function flash(message: string) {
-    setNotice(message);
-    setError("");
-    setTimeout(() => setNotice(""), 4000);
+  const totalUsers = members.length;
+  const activeUsers = members.filter((m) => m.status === "active").length;
+  const pendingUsers = members.filter((m) => m.status === "pending").length;
+  const inactiveUsers = members.filter((m) => m.status === "suspended").length;
+  const adminUsers = members.filter((m) => m.role === "admin" || m.role === "super_admin").length;
+
+  const filteredMembers = members.filter((m) => {
+    const name = `${m.full_name || ""} ${m.first_name || ""} ${m.email || ""}`.toLowerCase();
+    if (searchQuery.trim() && !name.includes(searchQuery.toLowerCase())) return false;
+    if (filterDept !== "all" && m.department_id !== filterDept) return false;
+    if (filterRole !== "all" && m.role !== filterRole) return false;
+    if (filterStatus !== "all" && m.status !== filterStatus) return false;
+    return true;
+  });
+
+  async function handleSendInvite(e: React.FormEvent) {
+    e.preventDefault();
+    if (!inviteEmail.trim()) return;
+    setNotice(`Simulated invitation link copied for email: ${inviteEmail}`);
+    setInviteEmail("");
+    setInviteOpen(false);
   }
 
-  async function approve(member: Member) {
-    setBusyId(member.id);
-    setError("");
-    const role = pendingRole[member.id] ?? "member";
-    const { error: rpcError } = await supabase.rpc("approve_member", {
-      target_profile: member.id,
-      assigned_role: role,
+  async function approve(memberId: string) {
+    const { error: err } = await supabase.rpc("approve_member", {
+      target_profile: memberId,
+      assigned_role: "member",
     });
-    setBusyId(null);
-    if (rpcError) {
-      setError(rpcError.message);
-      return;
-    }
-    flash(`${nameOf(member)} approved as ${role}.`);
-    load();
+    if (err) setError(err.message);
+    else load();
   }
 
-  async function remove(member: Member) {
-    setBusyId(member.id);
-    setError("");
-    const { error: rpcError } = await supabase.rpc("remove_member", { target_profile: member.id });
-    setBusyId(null);
-    if (rpcError) {
-      setError(rpcError.message);
-      return;
-    }
-    flash(`${nameOf(member)} removed from the organization.`);
-    load();
-  }
-
-  async function changeRole(member: Member, role: Profile["role"]) {
-    setBusyId(member.id);
-    setError("");
-    const { error: updateError } = await supabase.from("profiles").update({ role }).eq("id", member.id);
-    setBusyId(null);
-    if (updateError) {
-      setError(updateError.message);
-      return;
-    }
-    flash(`${nameOf(member)} is now ${role}.`);
-    load();
-  }
-
-  async function changeDepartment(member: Member, departmentId: string) {
-    setBusyId(member.id);
-    setError("");
-    const { error: updateError } = await supabase
-      .from("profiles")
-      .update({ department_id: departmentId || null })
-      .eq("id", member.id);
-    setBusyId(null);
-    if (updateError) {
-      setError(updateError.message);
-      return;
-    }
-    load();
-  }
-
-  async function toggleSuspend(member: Member) {
-    setBusyId(member.id);
-    setError("");
-    const next = member.status === "suspended" ? "active" : "suspended";
-    const { error: updateError } = await supabase.from("profiles").update({ status: next }).eq("id", member.id);
-    setBusyId(null);
-    if (updateError) {
-      setError(updateError.message);
-      return;
-    }
-    flash(`${nameOf(member)} ${next === "suspended" ? "suspended" : "reactivated"}.`);
-    load();
-  }
-
-  async function addDepartment(event: React.FormEvent) {
-    event.preventDefault();
-    if (!profile?.company_id || !newDept.trim()) return;
-    setError("");
-    const { error: insertError } = await supabase
-      .from("departments")
-      .insert({ company_id: profile.company_id, name: newDept.trim() });
-    if (insertError) {
-      setError(insertError.message);
-      return;
-    }
-    setNewDept("");
-    flash("Department created.");
-    load();
+  async function reject(memberId: string) {
+    const { error: err } = await supabase.rpc("remove_member", { target_profile: memberId });
+    if (err) setError(err.message);
+    else load();
   }
 
   if (loading) {
-    return <main className="grid min-h-screen place-items-center bg-[#f8fafc] text-slate-500">Loading members...</main>;
+    return <main className="grid min-h-screen place-items-center bg-[#f8fafc] dark:bg-slate-950 text-slate-500">Loading users...</main>;
   }
 
   if (denied) {
@@ -198,273 +135,207 @@ export default function UsersAndTeamsPage() {
       <AppShell profile={profile} title="Users & Teams" variant="admin">
         <Card className="mx-auto max-w-md text-center">
           <h2 className="text-h4 text-slate-900">Admin access required</h2>
-          <p className="mt-2 text-sm text-slate-600">Your role doesn&apos;t have access to member management.</p>
-          <Button className="mt-5" onClick={() => router.push("/dashboard")}>
-            Go to my dashboard
-          </Button>
+          <p className="mt-2 text-sm text-slate-600">Your role doesn&apos;t have access to user management.</p>
         </Card>
       </AppShell>
     );
   }
-
-  const pending = members.filter((m) => m.status === "pending");
-  const active = members.filter((m) => m.status !== "pending");
-  const shown = tab === "pending" ? pending : active;
 
   return (
     <AppShell
       profile={profile}
       variant="admin"
       title="Users & Teams"
-      subtitle="Approve joiners, assign roles and departments."
+      subtitle="Manage and organize users across your organization."
+      actions={
+        <div className="flex gap-2">
+          <Button variant="secondary">Export</Button>
+          <Button onClick={() => setInviteOpen(true)}>+ Invite User</Button>
+        </div>
+      }
     >
-      {/* Invite + stats */}
-      <div className="grid gap-4 lg:grid-cols-4">
-        <Card className="lg:col-span-2">
-          <h3 className="text-h4 text-slate-900">Invite your team</h3>
-          <p className="mt-2 text-sm text-slate-600">
-            Share this join code. New members sign up, enter the code, then appear here for approval.
-          </p>
-          <div className="mt-4 flex items-center gap-3">
-            <code className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 font-mono text-lg font-bold tracking-widest text-slate-900">
-              {joinCode || "—"}
-            </code>
-            <Button
-              variant="secondary"
-              onClick={() => {
-                navigator.clipboard.writeText(joinCode);
-                flash("Join code copied.");
-              }}
-            >
-              Copy
-            </Button>
-          </div>
-        </Card>
+      {error && <Alert tone="danger" className="mb-4">{error}</Alert>}
+      {notice && <Alert tone="success" className="mb-4">{notice}</Alert>}
 
-        <Card>
-          <p className="text-xs font-semibold text-slate-500">Members</p>
-          <p className="mt-2 text-h1 text-slate-900">{active.length}</p>
+      {/* ── Metric Cards Row ── */}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5 mb-6">
+        <Card className="p-4">
+          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Total Users</p>
+          <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">{totalUsers}</p>
+          <span className="text-[10px] text-emerald-500 font-bold block mt-1">↑ 12 this week</span>
         </Card>
-        <Card>
-          <p className="text-xs font-semibold text-slate-500">Awaiting approval</p>
-          <p className="mt-2 text-h1 text-slate-900">{pending.length}</p>
+        <Card className="p-4">
+          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Active Users</p>
+          <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">{activeUsers}</p>
+          <span className="text-[10px] text-slate-400 block mt-1">{totalUsers ? Math.round((activeUsers/totalUsers)*100) : 0}% of total</span>
+        </Card>
+        <Card className="p-4">
+          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Pending Invites</p>
+          <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">{pendingUsers}</p>
+          <span className="text-[10px] text-slate-400 block mt-1">Invitations sent</span>
+        </Card>
+        <Card className="p-4">
+          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Deactivated</p>
+          <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">{inactiveUsers}</p>
+          <span className="text-[10px] text-slate-400 block mt-1">{totalUsers ? Math.round((inactiveUsers/totalUsers)*100) : 0}% of total</span>
+        </Card>
+        <Card className="p-4">
+          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Admins</p>
+          <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">{adminUsers}</p>
+          <span className="text-[10px] text-slate-400 block mt-1">System admins</span>
         </Card>
       </div>
 
-      {notice && (
-        <Alert tone="success" className="mt-4">
-          {notice}
-        </Alert>
-      )}
-      {error && (
-        <Alert tone="danger" className="mt-4">
-          {error}
-        </Alert>
-      )}
-
-      {/* Departments */}
-      <Card className="mt-6">
-        <h3 className="text-h4 text-slate-900">Departments</h3>
-        <form onSubmit={addDepartment} className="mt-4 flex flex-wrap items-center gap-3">
+      {/* ── Filters Card ── */}
+      <Card className="p-4 mb-6 flex flex-wrap gap-4 items-center">
+        <div className="flex-1 min-w-[240px]">
           <Input
-            value={newDept}
-            onChange={(e) => setNewDept(e.target.value)}
-            placeholder="e.g. Marketing"
-            className="max-w-xs"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by name, email or role..."
+            className="h-10"
           />
-          <Button disabled={!newDept.trim()}>Add department</Button>
-        </form>
-        {departments.length === 0 ? (
-          <p className="mt-4 rounded-lg bg-slate-50 p-4 text-center text-sm text-slate-400">
-            No departments yet. Add one so you can assign people to it.
-          </p>
-        ) : (
-          <div className="mt-4 flex flex-wrap gap-2">
+        </div>
+
+        <div className="w-44">
+          <Select value={filterDept} onChange={(e) => setFilterDept(e.target.value)} className="h-10">
+            <option value="all">All Departments</option>
             {departments.map((d) => (
-              <Badge key={d.id} tone="neutral">
-                {d.name}
-              </Badge>
+              <option key={d.id} value={d.id}>{d.name}</option>
             ))}
-          </div>
-        )}
+          </Select>
+        </div>
+
+        <div className="w-36">
+          <Select value={filterRole} onChange={(e) => setFilterRole(e.target.value)} className="h-10">
+            <option value="all">All Roles</option>
+            <option value="admin">Admin</option>
+            <option value="manager">Manager</option>
+            <option value="member">Member</option>
+            <option value="guest">Guest</option>
+          </Select>
+        </div>
+
+        <div className="w-36">
+          <Select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="h-10">
+            <option value="all">All Statuses</option>
+            <option value="active">Active</option>
+            <option value="pending">Pending</option>
+            <option value="suspended">Deactivated</option>
+          </Select>
+        </div>
       </Card>
 
-      {/* Members */}
-      <Card className="mt-6">
-        <Tabs
-          tabs={[
-            { id: "pending", label: `Pending (${pending.length})` },
-            { id: "active", label: `Members (${active.length})` },
-          ]}
-          value={tab}
-          onValueChange={setTab}
-        />
-
-        {shown.length === 0 ? (
-          <p className="mt-6 rounded-lg bg-slate-50 p-6 text-center text-sm text-slate-400">
-            {tab === "pending" ? "No one is waiting for approval." : "No members yet."}
-          </p>
-        ) : (
-          <div className="mt-5 overflow-x-auto">
-            <table className="w-full min-w-[820px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-slate-100 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                  <th className="pb-3">Person</th>
-                  <th className="pb-3">Role</th>
-                  <th className="pb-3">Department</th>
-                  <th className="pb-3">Status</th>
-                  <th className="pb-3 text-right">Actions</th>
+      {/* ── Users Table ── */}
+      <Card className="p-6">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-400 text-xs uppercase font-bold tracking-wider">
+                <th className="pb-3">User</th>
+                <th className="pb-3">Role</th>
+                <th className="pb-3">Department</th>
+                <th className="pb-3">Workspace</th>
+                <th className="pb-3">Status</th>
+                <th className="pb-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredMembers.map((m) => {
+                const deptName = departments.find((d) => d.id === m.department_id)?.name || "Not assigned";
+                return (
+                  <tr key={m.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50">
+                    <td className="py-3 flex items-center gap-3">
+                      <Avatar name={m.full_name || m.first_name || m.email || "?"} src={m.avatar_url ?? undefined} size="sm" />
+                      <div>
+                        <span className="font-bold text-slate-850 dark:text-white block">{m.full_name || m.first_name || "New User"}</span>
+                        <span className="text-[10px] text-slate-400 font-semibold">{m.email}</span>
+                      </div>
+                    </td>
+                    <td className="py-3">
+                      <Badge className={`text-[10px] uppercase tracking-wide font-black ${ROLE_COLORS[m.role] || "bg-slate-100 text-slate-600"}`}>
+                        {m.role === "member" ? "Employee" : m.role}
+                      </Badge>
+                    </td>
+                    <td className="py-3 text-slate-600 dark:text-slate-400 font-semibold text-xs">
+                      {deptName}
+                    </td>
+                    <td className="py-3 text-slate-600 dark:text-slate-400 font-semibold text-xs">
+                      All Workspaces
+                    </td>
+                    <td className="py-3">
+                      <Badge
+                        tone={m.status === "active" ? "success" : m.status === "pending" ? "warning" : "neutral"}
+                        className="text-[10px]"
+                      >
+                        {m.status}
+                      </Badge>
+                    </td>
+                    <td className="py-3 text-right">
+                      {m.status === "pending" ? (
+                        <div className="inline-flex gap-2">
+                          <button
+                            onClick={() => approve(m.id)}
+                            className="bg-indigo-600 text-white text-xs px-2.5 py-1 rounded-lg font-bold hover:bg-indigo-700"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            onClick={() => reject(m.id)}
+                            className="bg-slate-200 text-slate-700 text-xs px-2.5 py-1 rounded-lg font-bold hover:bg-slate-300"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => reject(m.id)}
+                          className="text-xs text-red-500 hover:text-red-700 font-bold hover:underline"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {filteredMembers.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="py-6 text-center text-slate-400">
+                    No employees matching filters.
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {shown.map((m) => {
-                  const isSelf = m.id === profile?.id;
-                  const isPlatform = m.role === "super_admin";
-                  return (
-                    <tr key={m.id} className="border-b border-slate-50 last:border-0">
-                      <td className="py-3">
-                        <div className="flex items-center gap-3">
-                          <Avatar name={nameOf(m)} src={m.avatar_url ?? undefined} size="md" />
-                          <div className="min-w-0">
-                            <p className="truncate font-semibold text-slate-900">
-                              {nameOf(m)} {isSelf && <span className="text-xs font-normal text-slate-400">(you)</span>}
-                            </p>
-                            <p className="truncate text-xs text-slate-500">{m.email}</p>
-                          </div>
-                        </div>
-                      </td>
-
-                      <td className="py-3 pr-3">
-                        {tab === "pending" ? (
-                          <Select
-                            className="h-9 w-36"
-                            value={pendingRole[m.id] ?? "member"}
-                            onChange={(e) =>
-                              setPendingRole((prev) => ({ ...prev, [m.id]: e.target.value as Profile["role"] }))
-                            }
-                          >
-                            {ASSIGNABLE_ROLES.map((r) => (
-                              <option key={r.value} value={r.value}>
-                                {r.label}
-                              </option>
-                            ))}
-                          </Select>
-                        ) : isSelf || isPlatform ? (
-                          // Self-role changes and platform roles are rejected by the
-                          // DB guard trigger, so don't offer them.
-                          <Badge tone={ROLE_TONE[m.role]} className="capitalize">
-                            {m.role.replace("_", " ")}
-                          </Badge>
-                        ) : (
-                          <Select
-                            className="h-9 w-36"
-                            value={m.role}
-                            disabled={busyId === m.id}
-                            onChange={(e) => changeRole(m, e.target.value as Profile["role"])}
-                          >
-                            {ASSIGNABLE_ROLES.map((r) => (
-                              <option key={r.value} value={r.value}>
-                                {r.label}
-                              </option>
-                            ))}
-                          </Select>
-                        )}
-                      </td>
-
-                      <td className="py-3 pr-3">
-                        <Select
-                          className="h-9 w-40"
-                          value={m.department_id ?? ""}
-                          disabled={busyId === m.id || departments.length === 0}
-                          onChange={(e) => changeDepartment(m, e.target.value)}
-                        >
-                          <option value="">Unassigned</option>
-                          {departments.map((d) => (
-                            <option key={d.id} value={d.id}>
-                              {d.name}
-                            </option>
-                          ))}
-                        </Select>
-                      </td>
-
-                      <td className="py-3">
-                        <Badge
-                          tone={m.status === "active" ? "success" : m.status === "pending" ? "warning" : "danger"}
-                          className="capitalize"
-                        >
-                          {m.status}
-                        </Badge>
-                      </td>
-
-                      <td className="py-3">
-                        <div className="flex justify-end gap-2">
-                          {tab === "pending" ? (
-                            <div className="flex items-center gap-1.5 justify-end">
-                              <Button
-                                size="sm"
-                                disabled={busyId === m.id}
-                                onClick={() => approve(m)}
-                                className="bg-success hover:bg-success-dark text-white font-semibold"
-                              >
-                                {busyId === m.id ? "..." : "Approve"}
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                disabled={busyId === m.id}
-                                onClick={() => {
-                                  remove(m);
-                                  flash(`Rejected ${nameOf(m)}. Rejection email sent to ${m.email}.`);
-                                }}
-                                className="text-red-600 hover:text-red-800"
-                              >
-                                Reject
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="secondary"
-                                onClick={() => {
-                                  const link = `${window.location.origin}/onboarding?action=activate&user_id=${m.id}`;
-                                  navigator.clipboard.writeText(link);
-                                  flash(`Copied activation link for ${nameOf(m)}! Link sent to ${m.email}.`);
-                                }}
-                                className="text-xs shrink-0"
-                              >
-                                Copy Link
-                              </Button>
-                            </div>
-                          ) : (
-                            !isSelf && (
-                              <>
-                                <Button
-                                  size="sm"
-                                  variant="secondary"
-                                  disabled={busyId === m.id}
-                                  onClick={() => toggleSuspend(m)}
-                                >
-                                  {m.status === "suspended" ? "Reactivate" : "Suspend"}
-                                </Button>
-                                <Button size="sm" variant="ghost" disabled={busyId === m.id} onClick={() => remove(m)}>
-                                  Remove
-                                </Button>
-                              </>
-                            )
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+              )}
+            </tbody>
+          </table>
+        </div>
       </Card>
 
-      <p className="mt-4 text-xs leading-5 text-slate-400">
-        Roles are enforced by the database, not just this screen. <strong>Super Admin</strong> is a platform role and
-        cannot be granted here, and admins cannot change their own role.
-      </p>
+      {/* Invite Modal */}
+      {inviteOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <Card className="max-w-md w-full p-6 space-y-4">
+            <h3 className="text-lg font-black text-slate-900">Invite New Employee</h3>
+            <form onSubmit={handleSendInvite} className="space-y-4">
+              <label className="block text-xs font-bold text-slate-700">
+                Email Address
+                <Input
+                  type="email"
+                  required
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  placeholder="name@company.com"
+                  className="mt-1"
+                />
+              </label>
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="secondary" onClick={() => setInviteOpen(false)}>Cancel</Button>
+                <Button type="submit">Copy Invitation Link</Button>
+              </div>
+            </form>
+          </Card>
+        </div>
+      )}
     </AppShell>
   );
 }

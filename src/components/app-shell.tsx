@@ -53,20 +53,9 @@ const employeeNav: NavGroup[] = [
   {
     items: [
       { label: "Dashboard", href: "/dashboard", icon: icon(ICONS.home) },
-      { label: "Tasks & Requests", href: "/tasks", icon: icon(ICONS.check) },
-      { label: "Chat", icon: icon(ICONS.chat) },
-      { label: "Meetings", icon: icon(ICONS.video) },
-      { label: "Calendar", icon: icon(ICONS.calendar) },
-      { label: "Drive", icon: icon(ICONS.folder) },
-      { label: "Knowledge Base", icon: icon(ICONS.book) },
-    ],
-  },
-  {
-    heading: "Others",
-    items: [
-      { label: "Attendance", href: "/attendance", icon: icon(ICONS.clock) },
-      { label: "Profile", href: "/profile", icon: icon(ICONS.users) },
-      { label: "Account", href: "/account", icon: icon(ICONS.gear) },
+      { label: "Chats", href: "/chats", icon: icon(ICONS.chat) },
+      { label: "Tasks", href: "/tasks", icon: icon(ICONS.check) },
+      { label: "Requests", href: "/requests", icon: icon(ICONS.inbox) },
     ],
   },
 ];
@@ -379,23 +368,24 @@ export function AppShell({
             isAdminShell ? "border-[#e6eaf3] bg-white/90" : "border-slate-200 bg-white/80 dark:border-slate-800 dark:bg-slate-900/80"
           )}
         >
-          {isAdminShell && (
-            <button
-              aria-label="Open navigation"
-              onClick={() => {
-                if (window.matchMedia("(min-width: 1024px)").matches) {
-                  setSidebarCollapsed((collapsed) => !collapsed);
-                } else {
-                  setMobileNavOpen(true);
-                }
-              }}
-              className="grid h-9 w-9 place-items-center rounded-lg text-[#24304f] hover:bg-[#f3f5fb]"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7h16M4 12h16M4 17h16" />
-              </svg>
-            </button>
-          )}
+          <button
+            aria-label="Open navigation"
+            onClick={() => {
+              if (isAdminShell && window.matchMedia("(min-width: 1024px)").matches) {
+                setSidebarCollapsed((collapsed) => !collapsed);
+              } else {
+                setMobileNavOpen(true);
+              }
+            }}
+            className={cn(
+              "grid h-9 w-9 place-items-center rounded-lg hover:bg-[#f3f5fb]",
+              isAdminShell ? "text-[#24304f]" : "text-slate-700 lg:hidden dark:text-slate-200"
+            )}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7h16M4 12h16M4 17h16" />
+            </svg>
+          </button>
           <div className="min-w-0 flex-1">
             <h1 className={cn("truncate text-h3", isAdminShell ? "text-[#101936]" : "text-slate-900 dark:text-white")}>{title}</h1>
             {subtitle && <p className={cn("truncate text-sm", isAdminShell ? "text-[#637091]" : "text-slate-500 dark:text-slate-400")}>{subtitle}</p>}

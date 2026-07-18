@@ -1,118 +1,102 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
-import { getProfile, displayName, type Profile } from "@/lib/session";
 import { AppShell } from "@/components/app-shell";
-import { Card, Badge, Button, Alert } from "@/components/ui";
+import { Alert, Badge, Card } from "@/components/ui";
+import { supabase } from "@/lib/supabase";
+import { displayName, getProfile, type Profile } from "@/lib/session";
 
-type Task = { id: string; title: string; status: string; priority: string; due_date: string | null };
-type Meeting = { id: string; title: string; starts_at: string };
-type Announcement = { id: string; title: string; body: string | null };
-type Request = { id: string; title: string; status: string };
-type DriveFile = { id: string; name: string; size_bytes: number };
-type Attendance = { id: string; check_in_at: string | null; check_out_at: string | null; status: string };
+type DashboardTask = {
+  id: string;
+  title: string;
+  description: string | null;
+  status: string;
+  priority: string;
+  departmentName: string | null;
+  dueDate: string | null;
+  createdAt: string;
+};
+type DashboardRequest = {
+  id: string;
+  title: string;
+  status: string;
+  priority: string;
+  toDepartmentName: string | null;
+  createdAt: string;
+};
+type Department = {
+  id: string;
+  name: string;
+  description: string | null;
+  bio: string | null;
+  memberCount: number;
+};
+type DashboardData = {
+  stats: {
+    myTasks: number;
+    completedTasks: number;
+    myRequests: number;
+    departmentMessages: number;
+  };
+  tasks: DashboardTask[];
+  requests: DashboardRequest[];
+  departments: Department[];
+};
 
-function fmtBytes(bytes: number) {
-  if (!bytes) return "0 KB";
-  const mb = bytes / 1024 ** 2;
-  return mb < 1 ? `${Math.round(bytes / 1024)} KB` : `${mb.toFixed(1)} MB`;
+const emptyData: DashboardData = {
+  stats: { myTasks: 0, completedTasks: 0, myRequests: 0, departmentMessages: 0 },
+  tasks: [],
+  requests: [],
+  departments: [],
+};
+
+const priorityTone: Record<string, "danger" | "warning" | "success" | "neutral"> = {
+  urgent: "danger",
+  high: "danger",
+  medium: "warning",
+  low: "success",
+};
+
+function dateLabel(value: string | null) {
+  if (!value) return "No due date";
+  return new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-function dueLabel(due: string | null) {
-  if (!due) return null;
-  const today = new Date().toISOString().slice(0, 10);
-  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
-  if (due < today) return { text: "Overdue", tone: "danger" as const };
-  if (due === today) return { text: "Due Today", tone: "danger" as const };
-  if (due === tomorrow) return { text: "Due Tomorrow", tone: "warning" as const };
-  return {
-    text: new Date(due).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
-    tone: "neutral" as const,
-  };
+function statIcon(path: string) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-5 w-5">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={path} />
+    </svg>
+  );
 }
 
 export default function EmployeeDashboardPage() {
   const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [data, setData] = useState<DashboardData>(emptyData);
   const [loading, setLoading] = useState(true);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [meetings, setMeetings] = useState<Meeting[]>([]);
-  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
-  const [requests, setRequests] = useState<Request[]>([]);
-  const [files, setFiles] = useState<DriveFile[]>([]);
-  const [attendance, setAttendance] = useState<Attendance | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   const load = useCallback(async () => {
     const me = await getProfile();
     if (!me) {
-      router.replace("/");
+      router.replace("/login");
       return;
     }
     setProfile(me);
-
-    // No org, or joined but not yet approved -> onboarding owns those states.
     if (!me.company_id || me.status !== "active") {
       router.replace("/onboarding");
       return;
     }
-
-    const companyId = me.company_id;
-    const workDate = new Date().toISOString().slice(0, 10);
-    const nowIso = new Date().toISOString();
-
-    const [tasksRes, meetingsRes, annRes, reqRes, filesRes, attRes] = await Promise.all([
-      supabase
-        .from("tasks")
-        .select("id, title, status, priority, due_date")
-        .eq("company_id", companyId)
-        .eq("assignee_id", me.id)
-        .not("status", "in", "(completed,cancelled)")
-        .order("due_date", { ascending: true, nullsFirst: false })
-        .limit(5),
-      supabase
-        .from("meetings")
-        .select("id, title, starts_at")
-        .eq("company_id", companyId)
-        .gte("starts_at", nowIso)
-        .order("starts_at")
-        .limit(3),
-      supabase
-        .from("announcements")
-        .select("id, title, body")
-        .eq("company_id", companyId)
-        .order("created_at", { ascending: false })
-        .limit(3),
-      supabase
-        .from("requests")
-        .select("id, title, status")
-        .eq("company_id", companyId)
-        .in("status", ["pending", "in_progress"])
-        .order("created_at", { ascending: false })
-        .limit(3),
-      supabase
-        .from("drive_files")
-        .select("id, name, size_bytes")
-        .eq("company_id", companyId)
-        .eq("is_trashed", false)
-        .order("updated_at", { ascending: false })
-        .limit(3),
-      supabase
-        .from("attendance_sessions")
-        .select("id, check_in_at, check_out_at, status")
-        .eq("profile_id", me.id)
-        .eq("work_date", workDate)
-        .maybeSingle(),
-    ]);
-
-    setTasks(tasksRes.data ?? []);
-    setMeetings(meetingsRes.data ?? []);
-    setAnnouncements(annRes.data ?? []);
-    setRequests(reqRes.data ?? []);
-    setFiles(filesRes.data ?? []);
-    setAttendance(attRes.data ?? null);
+    const { data: rpcData, error: rpcError } = await supabase.rpc("get_employee_dashboard_data");
+    if (rpcError) {
+      setError(rpcError.message);
+      setData(emptyData);
+    } else {
+      setData({ ...emptyData, ...(rpcData as DashboardData) });
+    }
     setLoading(false);
   }, [router]);
 
@@ -120,254 +104,131 @@ export default function EmployeeDashboardPage() {
     load();
   }, [load]);
 
-  async function checkIn() {
-    if (!profile?.company_id) return;
-    setBusy(true);
-    await supabase.from("attendance_sessions").upsert(
-      {
-        company_id: profile.company_id,
-        profile_id: profile.id,
-        work_date: new Date().toISOString().slice(0, 10),
-        check_in_at: new Date().toISOString(),
-        status: "present",
-      },
-      { onConflict: "profile_id,work_date" }
-    );
-    await load();
-    setBusy(false);
-  }
+  useEffect(() => {
+    ["/chats", "/tasks", "/requests"].forEach((href) => router.prefetch(href));
+  }, [router]);
 
-  async function checkOut() {
-    if (!attendance) return;
-    setBusy(true);
-    await supabase
-      .from("attendance_sessions")
-      .update({ check_out_at: new Date().toISOString() })
-      .eq("id", attendance.id);
-    await load();
-    setBusy(false);
-  }
+  const greeting = useMemo(() => {
+    const hour = new Date().getHours();
+    if (hour < 12) return "Good Morning";
+    if (hour < 18) return "Good Afternoon";
+    return "Good Evening";
+  }, []);
 
   if (loading) {
-    return (
-      <main className="grid min-h-screen place-items-center bg-[#f8fafc] text-slate-500">
-        Loading your workspace...
-      </main>
-    );
+    return <main className="grid min-h-screen place-items-center bg-[#f8fafc] text-slate-500">Loading employee dashboard...</main>;
   }
-
-  if (!profile?.company_id) {
-    return (
-      <AppShell profile={profile} title="Dashboard">
-        <Card className="mx-auto max-w-lg">
-          <h2 className="text-h4 text-slate-900">Waiting for approval</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-600">
-            Your account isn&apos;t assigned to a company yet. An admin needs to approve your registration before your
-            workspace appears here.
-          </p>
-          <Alert tone="info" className="mt-4">
-            Status: <strong className="capitalize">{profile?.status}</strong>
-          </Alert>
-        </Card>
-      </AppShell>
-    );
-  }
-
-  const hour = new Date().getHours();
-  const greeting = hour < 12 ? "Good Morning" : hour < 18 ? "Good Afternoon" : "Good Evening";
 
   return (
     <AppShell
       profile={profile}
-      title={`${greeting}, ${displayName(profile)}! 👋`}
-      subtitle="Here's what's happening in your workspace today."
+      title={`${greeting}, ${displayName(profile)}!`}
+      subtitle="Stay productive and keep your tasks moving forward."
       actions={
-        <span className="hidden rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 sm:inline">
-          {new Date().toLocaleDateString(undefined, {
-            weekday: "long",
-            day: "numeric",
-            month: "long",
-            year: "numeric",
-          })}
+        <span className="hidden rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 sm:inline">
+          {new Date().toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" })}
         </span>
       }
     >
-      <div className="grid gap-6 xl:grid-cols-3">
-        <Card className="xl:col-span-2">
-          <div className="flex items-center justify-between">
-            <h3 className="text-h4 text-slate-900">My Tasks</h3>
-            <span className="text-xs text-slate-400">{tasks.length} open</span>
+      <div className="space-y-6">
+        {error && <Alert tone="danger" onClose={() => setError("")}>{error}</Alert>}
+
+        <section className="rounded-[28px] border border-[#dbe3ff] bg-[linear-gradient(135deg,#eef2ff_0%,#f8fbff_58%,#ffffff_100%)] p-5 shadow-[0_20px_60px_rgba(79,70,229,0.10)] sm:p-7">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="text-2xl font-black tracking-tight text-[#071035] sm:text-3xl">{greeting}, {displayName(profile)}!</h2>
+              <p className="mt-2 text-sm font-semibold text-[#526184]">Your personal workspace is ready.</p>
+            </div>
+            <Link href="/tasks" className="inline-flex h-10 items-center justify-center rounded-lg bg-[#5b36f2] px-4 text-sm font-black text-white shadow-[0_12px_28px_rgba(91,54,242,0.24)]">
+              View Tasks
+            </Link>
           </div>
-          {tasks.length === 0 ? (
-            <Empty message="No open tasks assigned to you." />
-          ) : (
-            <ul className="mt-4 space-y-2">
-              {tasks.map((t) => {
-                const due = dueLabel(t.due_date);
-                return (
-                  <li key={t.id} className="flex items-center gap-3 rounded-lg border border-slate-100 p-3">
-                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary-light text-primary">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-4 w-4">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75 11.25 15 15 9.75" />
-                      </svg>
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-slate-900">{t.title}</p>
-                      <p className="text-xs capitalize text-slate-500">
-                        {t.status.replace("_", " ")} · {t.priority} priority
-                      </p>
+        </section>
+
+        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <Stat label="My Tasks" value={data.stats.myTasks} helper="Open work" tone="bg-[#ece8ff] text-[#4f46e5]" icon={statIcon("M9 12.75 11.25 15 15 9.75M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z")} href="/tasks" />
+          <Stat label="Completed" value={data.stats.completedTasks} helper="Finished tasks" tone="bg-[#e8f8ef] text-[#08764f]" icon={statIcon("M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z")} href="/tasks" />
+          <Stat label="Requests" value={data.stats.myRequests} helper="Created by you" tone="bg-[#fff4df] text-[#a54f00]" icon={statIcon("M2.25 13.5h3.86a2.25 2.25 0 0 1 2.012 1.244l.256.512a2.25 2.25 0 0 0 2.013 1.244h3.218a2.25 2.25 0 0 0 2.013-1.244l.256-.512a2.25 2.25 0 0 1 2.013-1.244h3.859")} href="/requests" />
+          <Stat label="Messages" value={data.stats.departmentMessages} helper="Last 24 hours" tone="bg-[#eaf1ff] text-[#2458d3]" icon={statIcon("M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163")} href="/chats" />
+        </section>
+
+        <section className="grid gap-5 xl:grid-cols-[1.3fr_0.9fr]">
+          <Card className="rounded-xl border-[#dfe6f3] p-5">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-black text-[#071035]">My Tasks</h3>
+              <Link href="/tasks" className="text-sm font-black text-[#5b36f2]">View all</Link>
+            </div>
+            <div className="space-y-3">
+              {data.tasks.length === 0 && <Empty message="No open tasks assigned to you." />}
+              {data.tasks.map((task) => (
+                <Link key={task.id} href="/tasks" className="block rounded-lg border border-[#edf0f7] bg-white p-4 transition hover:-translate-y-0.5 hover:border-[#c9c2ff] hover:shadow-[0_16px_36px_rgba(40,55,105,0.10)]">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="font-black text-[#071035]">{task.title}</p>
+                      <p className="mt-1 text-xs font-semibold text-[#526184]">{task.departmentName ?? "General"} - {dateLabel(task.dueDate)}</p>
                     </div>
-                    {due && <Badge tone={due.tone}>{due.text}</Badge>}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </Card>
-
-        <Card>
-          <h3 className="text-h4 text-slate-900">My Attendance</h3>
-          {attendance?.check_in_at ? (
-            <>
-              <Alert tone={attendance.check_out_at ? "info" : "success"} className="mt-4">
-                {attendance.check_out_at ? "Checked out for today." : "You're all set for today! 🎉"}
-              </Alert>
-              <div className="mt-4 grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <p className="text-xs text-slate-400">Check-in</p>
-                  <p className="font-bold text-slate-900">
-                    {new Date(attendance.check_in_at).toLocaleTimeString(undefined, {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-400">Status</p>
-                  <Badge tone="success" className="capitalize">
-                    {attendance.status}
-                  </Badge>
-                </div>
-              </div>
-              {!attendance.check_out_at && (
-                <Button variant="secondary" className="mt-5 w-full" onClick={checkOut} disabled={busy}>
-                  {busy ? "Saving..." : "Check out"}
-                </Button>
-              )}
-            </>
-          ) : (
-            <>
-              <p className="mt-3 text-sm text-slate-600">You haven&apos;t checked in today.</p>
-              <Button className="mt-4 w-full" onClick={checkIn} disabled={busy}>
-                {busy ? "Saving..." : "Check in"}
-              </Button>
-            </>
-          )}
-        </Card>
-      </div>
-
-      <div className="mt-6 grid gap-6 xl:grid-cols-3">
-        <Card>
-          <h3 className="text-h4 text-slate-900">Upcoming Meetings</h3>
-          {meetings.length === 0 ? (
-            <Empty message="No upcoming meetings." />
-          ) : (
-            <ul className="mt-4 space-y-3">
-              {meetings.map((m) => {
-                const d = new Date(m.starts_at);
-                return (
-                  <li key={m.id} className="flex items-center gap-3 rounded-lg border border-slate-100 p-3">
-                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary-light text-primary">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-4 w-4">
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="m15.75 10.5 4.72-2.36a.75.75 0 0 1 1.03.67v9.38a.75.75 0 0 1-1.03.67l-4.72-2.36M4.5 6.75h9a1.5 1.5 0 0 1 1.5 1.5v7.5a1.5 1.5 0 0 1-1.5 1.5h-9a1.5 1.5 0 0 1-1.5-1.5v-7.5a1.5 1.5 0 0 1 1.5-1.5Z"
-                        />
-                      </svg>
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-bold text-slate-900">{m.title}</p>
-                      <p className="text-xs text-slate-500">
-                        {d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
-                      </p>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </Card>
-
-        <Card>
-          <h3 className="text-h4 text-slate-900">Department Updates</h3>
-          {announcements.length === 0 ? (
-            <Empty message="No announcements yet." />
-          ) : (
-            <ul className="mt-4 space-y-3">
-              {announcements.map((a) => (
-                <li key={a.id} className="rounded-lg border border-slate-100 p-3">
-                  <p className="text-sm font-bold text-slate-900">{a.title}</p>
-                  {a.body && <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{a.body}</p>}
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-
-        <Card>
-          <h3 className="text-h4 text-slate-900">Pending Requests</h3>
-          {requests.length === 0 ? (
-            <Empty message="No pending requests." />
-          ) : (
-            <ul className="mt-4 space-y-3">
-              {requests.map((r) => (
-                <li key={r.id} className="flex items-center gap-3 rounded-lg border border-slate-100 p-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-slate-900">{r.title}</p>
+                    <Badge tone={priorityTone[task.priority] ?? "neutral"} className="capitalize">{task.priority}</Badge>
                   </div>
-                  <Badge tone={r.status === "pending" ? "warning" : "info"} className="capitalize">
-                    {r.status.replace("_", " ")}
-                  </Badge>
-                </li>
+                </Link>
               ))}
-            </ul>
-          )}
+            </div>
+          </Card>
+
+          <Card className="rounded-xl border-[#dfe6f3] p-5">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-black text-[#071035]">Requests</h3>
+              <Link href="/requests" className="text-sm font-black text-[#5b36f2]">New request</Link>
+            </div>
+            <div className="space-y-3">
+              {data.requests.length === 0 && <Empty message="No requests created yet." />}
+              {data.requests.map((request) => (
+                <Link key={request.id} href="/requests" className="block rounded-lg border border-[#edf0f7] bg-white p-4 hover:bg-[#fbfcff]">
+                  <p className="font-black text-[#071035]">{request.title}</p>
+                  <p className="mt-1 text-xs font-semibold text-[#526184]">{request.toDepartmentName ?? "Any department"}</p>
+                  <Badge tone={request.status === "completed" ? "success" : request.status === "rejected" ? "danger" : "warning"} className="mt-3 capitalize">{request.status.replace("_", " ")}</Badge>
+                </Link>
+              ))}
+            </div>
+          </Card>
+        </section>
+
+        <Card className="rounded-xl border-[#dfe6f3] p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="text-lg font-black text-[#071035]">Department Channels</h3>
+            <Link href="/chats" className="text-sm font-black text-[#5b36f2]">Open chats</Link>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {data.departments.map((department) => (
+              <Link key={department.id} href="/chats" className="rounded-lg border border-[#edf0f7] bg-[#fbfcff] p-4 transition hover:border-[#c9c2ff]">
+                <p className="font-black text-[#071035]">{department.name}</p>
+                <p className="mt-2 line-clamp-2 text-sm font-semibold leading-6 text-[#526184]">{department.bio || department.description || "Department discussion channel."}</p>
+                <p className="mt-3 text-xs font-black text-[#5b36f2]">{department.memberCount} members</p>
+              </Link>
+            ))}
+          </div>
         </Card>
       </div>
-
-      <Card className="mt-6">
-        <h3 className="text-h4 text-slate-900">Recent Files</h3>
-        {files.length === 0 ? (
-          <Empty message="No files in Drive yet." />
-        ) : (
-          <ul className="mt-4 grid gap-3 sm:grid-cols-3">
-            {files.map((f) => (
-              <li key={f.id} className="flex items-center gap-3 rounded-lg border border-slate-100 p-3">
-                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-info-light text-info">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="h-4 w-4">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25M6.75 12h10.5"
-                    />
-                  </svg>
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-slate-900">{f.name}</p>
-                  <p className="text-xs text-slate-400">{fmtBytes(f.size_bytes)}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
     </AppShell>
   );
 }
 
+function Stat({ label, value, helper, tone, icon, href }: { label: string; value: number; helper: string; tone: string; icon: React.ReactNode; href: string }) {
+  return (
+    <Link href={href}>
+      <Card className="min-h-[132px] rounded-xl border-[#dfe6f3] p-5 transition hover:-translate-y-0.5 hover:border-[#bdb5ff] hover:shadow-[0_18px_42px_rgba(40,55,105,0.12)]">
+        <div className="flex items-start justify-between gap-4">
+          <span className={`grid h-12 w-12 place-items-center rounded-lg ${tone}`}>{icon}</span>
+          <span className="text-right">
+            <span className="block text-[12px] font-black uppercase tracking-wide text-[#526184]">{label}</span>
+            <span className="mt-2 block text-[30px] font-black leading-none text-[#071035]">{value}</span>
+          </span>
+        </div>
+        <p className="mt-5 text-xs font-black text-[#08764f]">{helper}</p>
+      </Card>
+    </Link>
+  );
+}
+
 function Empty({ message }: { message: string }) {
-  return <p className="mt-6 rounded-lg bg-slate-50 p-4 text-center text-sm text-slate-400">{message}</p>;
+  return <p className="rounded-lg border border-dashed border-[#dfe6f3] p-5 text-center text-sm font-bold text-[#526184]">{message}</p>;
 }

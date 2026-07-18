@@ -93,6 +93,8 @@ export default function OnboardingPage() {
   const [availableDepartments, setAvailableDepartments] = useState<{ id: string; name: string }[]>([]);
   const [selectedDepartment, setSelectedDepartment] = useState<string>("");
   const [verifiedCompany, setVerifiedCompany] = useState<string>("");
+  const [codeMailStatus, setCodeMailStatus] = useState<"idle" | "sending" | "sent" | "failed">("idle");
+  const [codeMailMessage, setCodeMailMessage] = useState("");
 
   // Waiting Approval States
   const [pendingCompany, setPendingCompany] = useState<string>("");
@@ -269,6 +271,8 @@ export default function OnboardingPage() {
     setJoinStage("code");
     setInviteCode("");
     setError("");
+    setCodeMailStatus("sending");
+    setCodeMailMessage("Sending the invitation code to your email...");
     const { data, error: deptError } = await supabase.rpc("get_departments_by_company", {
       target_company: company.id,
     });
@@ -279,6 +283,32 @@ export default function OnboardingPage() {
       setAvailableDepartments([]);
       setSelectedDepartment("");
     }
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) {
+      setCodeMailStatus("failed");
+      setCodeMailMessage("Sign in again before we can email your invitation code.");
+      return;
+    }
+
+    const response = await fetch("/api/onboarding/join-code", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ companyId: company.id }),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      setCodeMailStatus("failed");
+      setCodeMailMessage(result.error ?? "Could not send the invitation code email. Ask your admin for today's code.");
+      return;
+    }
+
+    setCodeMailStatus("sent");
+    setCodeMailMessage("Invitation code sent to your email. Paste it below to request admin approval.");
   }
 
   async function cancelRequest() {
@@ -541,6 +571,8 @@ export default function OnboardingPage() {
                     setInviteCode("");
                     setAvailableDepartments([]);
                     setSelectedDepartment("");
+                    setCodeMailStatus("idle");
+                    setCodeMailMessage("");
                     setStep("join");
                   }}
                   className="mt-8 inline-flex items-center gap-1.5 text-sm font-bold text-indigo-600 hover:text-indigo-700 transition hover:gap-2"
@@ -690,6 +722,14 @@ export default function OnboardingPage() {
                       Check your mail for the invitation code. Your admin can also share today&apos;s code from Users &amp; Teams.
                     </p>
                   </div>
+                  {codeMailMessage && (
+                    <Alert
+                      tone={codeMailStatus === "failed" ? "danger" : codeMailStatus === "sent" ? "success" : "info"}
+                      className="rounded-2xl"
+                    >
+                      {codeMailMessage}
+                    </Alert>
+                  )}
                   <label className="block text-sm font-bold text-slate-700">
                     Invitation Code
                     <Input
@@ -735,6 +775,8 @@ export default function OnboardingPage() {
                       setInviteCode("");
                       setAvailableDepartments([]);
                       setSelectedDepartment("");
+                      setCodeMailStatus("idle");
+                      setCodeMailMessage("");
                     } else {
                       setStep("choose");
                     }

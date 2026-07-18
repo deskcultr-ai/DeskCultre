@@ -81,6 +81,19 @@ function AuthCallbackContent() {
 
       // If this was a Google register flow, persist the profile details.
       const pendingRegistration = readPendingRegistration();
+      const { error: ensureError } = await supabase.rpc(
+        "ensure_profile_for_current_user",
+        {
+          request_first_name: pendingRegistration?.firstName ?? null,
+          request_last_name: pendingRegistration?.lastName ?? null,
+          request_phone_number: pendingRegistration?.phoneNumber ?? null,
+        }
+      );
+      if (!cancelled && ensureError) {
+        setError(`Could not prepare your profile: ${ensureError.message || "Please try again from the login page."}`);
+        return;
+      }
+
       if (pendingRegistration) {
         const { error: requestError } = await supabase.rpc(
           "request_workspace_access",

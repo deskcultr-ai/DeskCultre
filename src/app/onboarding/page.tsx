@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getProfile, type Profile } from "@/lib/session";
 import { Button, Input, Card, Alert, Select } from "@/components/ui";
@@ -68,6 +68,9 @@ const personas: PersonaCard[] = [
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const pathname = usePathname();
+  const allowCreateOrg = pathname === "/new-org";
+  const visiblePersonas = allowCreateOrg ? personas : personas.filter((persona) => persona.id !== "owner");
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [step, setStep] = useState<Step>("name");
@@ -449,7 +452,7 @@ export default function OnboardingPage() {
               WHO ARE YOU?
             </h2>
             <div className="grid gap-4 sm:grid-cols-2">
-              {personas.map((persona) => (
+              {visiblePersonas.map((persona) => (
                 <button
                   key={persona.id}
                   type="button"
@@ -496,8 +499,8 @@ export default function OnboardingPage() {
                 disabled={!selectedPersona}
                 className="flex-1 h-12 rounded-2xl font-bold bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center gap-2 disabled:opacity-50"
                 onClick={() => {
-                  const persona = personas.find((p) => p.id === selectedPersona);
-                  if (persona?.suggestedPath === "create") {
+                  const persona = visiblePersonas.find((p) => p.id === selectedPersona);
+                  if (allowCreateOrg && persona?.suggestedPath === "create") {
                     setTestingRole("admin");
                   } else {
                     setTestingRole(selectedPersona === "employee" ? "member" : (selectedPersona || "member"));
@@ -518,11 +521,12 @@ export default function OnboardingPage() {
         {step === "choose" && (
           <div className="w-full">
             <h2 className="text-center text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-6">
-              CHOOSE ONBOARDING PATH
+              {allowCreateOrg ? "CHOOSE ONBOARDING PATH" : "JOIN YOUR ORGANIZATION"}
             </h2>
 
-            <div className="grid gap-6 md:grid-cols-2">
+            <div className={cn("grid gap-6", allowCreateOrg ? "md:grid-cols-2" : "mx-auto max-w-md")}>
               {/* Create Org */}
+              {allowCreateOrg && (
               <div className="rounded-3xl border border-white/60 bg-white/80 p-8 shadow-xl shadow-indigo-100/10 backdrop-blur-xl flex flex-col justify-between transition hover:-translate-y-0.5 hover:shadow-2xl">
                 <div>
                   <div className="grid h-12 w-12 place-items-center rounded-2xl bg-indigo-50 text-indigo-600 mb-6">
@@ -546,6 +550,7 @@ export default function OnboardingPage() {
                   </svg>
                 </button>
               </div>
+              )}
 
               {/* Join Org */}
               <div className="rounded-3xl border border-white/60 bg-white/80 p-8 shadow-xl shadow-indigo-100/10 backdrop-blur-xl flex flex-col justify-between transition hover:-translate-y-0.5 hover:shadow-2xl">

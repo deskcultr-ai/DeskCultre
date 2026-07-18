@@ -15,6 +15,21 @@ type AuthPanelProps = {
   initialMode?: AuthMode;
 };
 
+function authErrorMessage(error: unknown, fallback: string) {
+  if (!error) return fallback;
+  if (typeof error === "string") return error === "{}" ? fallback : error;
+  if (typeof error === "object") {
+    const record = error as Record<string, unknown>;
+    const message = record.message;
+    const description = record.error_description;
+    const name = record.name;
+    if (typeof message === "string" && message.trim() && message.trim() !== "{}") return message;
+    if (typeof description === "string" && description.trim()) return description;
+    if (typeof name === "string" && name.trim()) return `${name}. Please try again.`;
+  }
+  return fallback;
+}
+
 export default function AuthPanel({ initialMode = "login" }: AuthPanelProps) {
   const router = useRouter();
   const [mode, setMode] = useState<AuthMode>(initialMode);
@@ -94,7 +109,7 @@ export default function AuthPanel({ initialMode = "login" }: AuthPanelProps) {
 
     if (oauthError) {
       setGoogleBusy(false);
-      setError("Unable to start Google sign-in. Try again or use email.");
+      setError(authErrorMessage(oauthError, "Unable to start Google sign-in. Try again or use email."));
     }
   }
 
@@ -108,7 +123,7 @@ export default function AuthPanel({ initialMode = "login" }: AuthPanelProps) {
       const { error: loginError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
       if (loginError) {
         setBusy(false);
-        setError("Unable to sign in. Check your email and password.");
+        setError(authErrorMessage(loginError, "Unable to sign in. Check your email and password."));
         return;
       }
       router.replace(pendingInvite ? `/onboarding?invite_code=${encodeURIComponent(pendingInvite.code)}&invite_token=${encodeURIComponent(pendingInvite.token)}` : await getPostAuthRedirect());
@@ -149,8 +164,20 @@ export default function AuthPanel({ initialMode = "login" }: AuthPanelProps) {
 
     setBusy(false);
     if (signupError) {
-      setError(signupError.message);
+      setError(authErrorMessage(signupError, "Unable to create your account. Check the details and try again."));
       return;
+    }
+
+    if (data.session) {
+      const { error: profileError } = await supabase.rpc("ensure_profile_for_current_user", {
+        request_first_name: firstName.trim(),
+        request_last_name: lastName.trim(),
+        request_phone_number: normalizedPhone,
+      });
+      if (profileError) {
+        setError(authErrorMessage(profileError, "Your account was created, but profile setup failed. Sign in again to continue."));
+        return;
+      }
     }
 
     setMessage(
